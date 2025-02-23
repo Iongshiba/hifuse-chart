@@ -415,13 +415,32 @@ class WindowAttention(nn.Module):
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
         coords = torch.stack(torch.meshgrid([coords_h, coords_w], indexing="ij"))  # [2, Mh, Mw]
+        # coords = [
+        #     [
+        #         [0, 1, 2, 3, 4, 5, 6],  # Row indices
+        #         [0, 1, 2, 3, 4, 5, 6],
+        #         ... 
+        #         [0, 1, 2, 3, 4, 5, 6]
+        #     ],
+        #     [
+        #         [0, 0, 0, 0, 0, 0, 0],  # Column indices
+        #         [1, 1, 1, 1, 1, 1, 1],
+        #         ...
+        #         [6, 6, 6, 6, 6, 6, 6]
+        #     ]
+        # ]
         coords_flatten = torch.flatten(coords, 1)  # [2, Mh*Mw]
+        # coords_flatten = [
+        #     [0, 1, 2, ..., 6, 0, 1, 2, ..., 6, ..., 0, 1, ..., 6],  # Row indices
+        #     [0, 0, 0, ..., 0, 1, 1, 1, ..., 1, ..., 6, 6, ..., 6]   # Column indices
+        # ]  # Shape: [2, 49]
         # [2, Mh*Mw, 1] - [2, 1, Mh*Mw]
         relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # [2, Mh*Mw, Mh*Mw]
         relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # [Mh*Mw, Mh*Mw, 2]
         relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
         relative_coords[:, :, 1] += self.window_size[1] - 1
-        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1 # ???????
+        # Relative Positional Embeddings
         relative_position_index = relative_coords.sum(-1)  # [Mh*Mw, Mh*Mw]
         self.register_buffer("relative_position_index", relative_position_index)
 
@@ -518,6 +537,7 @@ class Global_block(nn.Module):
         self.act = act_layer()
 
     def forward(self, x, attn_mask):
+        # patch size
         H, W = self.H, self.W
         B, L, C = x.shape
         assert L == H * W, "input feature has wrong size"
@@ -525,6 +545,10 @@ class Global_block(nn.Module):
         shortcut = x
         x = self.norm1(x)
         x = x.view(B, H, W, C)
+        # x = [
+        #     patch1, patch2,...
+        #     patch...
+        # ] each patch has C which is embed_dim
 
         # padding for partition windows
         pad_l = pad_t = 0
@@ -541,6 +565,7 @@ class Global_block(nn.Module):
             attn_mask = None
 
         # partition windows
+        # Divide (1, 14, 14, 3) into (4, 7, 7, 3)
         x_windows = window_partition(shifted_x, self.window_size)  # [nW*B, Mh, Mw, C]
         x_windows = x_windows.view(-1, self.window_size * self.window_size, C)  # [nW*B, Mh*Mw, C]
 
@@ -668,7 +693,7 @@ def window_partition(x, window_size: int):
         windows: (num_windows*B, window_size, window_size, C)
 
     Example:
-        Divide (1, 14, 14, 3) into (1, 2, 2, 7, 7, 3)
+        Divide (1, 14, 14, 3) -> (1, 2, 2, 7, 7, 3) -> (1 * 2 * 2, 7, 7, 3)
     """
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
@@ -724,6 +749,7 @@ class PatchEmbed(nn.Module):
         # downsample patch_size times
         x = self.proj(x)
         _, _, H, W = x.shape
+        # H, W at this stage is the number of tokens (image_H, image_W // patch_size)
         # flatten: [B, C, H, W] -> [B, C, HW]
         # transpose: [B, C, HW] -> [B, HW, C]
         x = x.flatten(2).transpose(1, 2)
