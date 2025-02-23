@@ -285,7 +285,7 @@ class HFF_block(nn.Module):
         self.W_l = Conv(ch_1, ch_int, 1, bn=True, relu=False)
         self.W_g = Conv(ch_2, ch_int, 1, bn=True, relu=False)
         self.Avg = nn.AvgPool2d(2, stride=2)
-        self.Updim = Conv(ch_int//2, ch_int, 1, bn=True, relu=True)
+        self.Updim = Conv(ch_int//2, ch_int, 1, bn=True, relu=True) # 1x1 Conv - according to paper
         self.norm1 = LayerNorm(ch_int * 3, eps=1e-6, data_format="channels_first")
         self.norm2 = LayerNorm(ch_int * 2, eps=1e-6, data_format="channels_first")
         self.norm3 = LayerNorm(ch_1 + ch_2 + ch_int, eps=1e-6, data_format="channels_first")
@@ -526,6 +526,7 @@ class Global_block(nn.Module):
         x = self.norm1(x)
         x = x.view(B, H, W, C)
 
+        # padding for partition windows
         pad_l = pad_t = 0
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
@@ -665,6 +666,9 @@ def window_partition(x, window_size: int):
 
     Returns:
         windows: (num_windows*B, window_size, window_size, C)
+
+    Example:
+        Divide (1, 14, 14, 3) into (1, 2, 2, 7, 7, 3)
     """
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
@@ -712,7 +716,7 @@ class PatchEmbed(nn.Module):
         pad_input = (H % self.patch_size[0] != 0) or (W % self.patch_size[1] != 0)
         if pad_input:
             # to pad the last 3 dimensions,
-            # (W_left, W_right, H_top,H_bottom, C_front, C_back)
+            # (W_left, W_right, H_top, H_bottom, C_front, C_back)
             x = F.pad(x, (0, self.patch_size[1] - W % self.patch_size[1],
                           0, self.patch_size[0] - H % self.patch_size[0],
                           0, 0))
