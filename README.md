@@ -13,3 +13,4 @@ conda env create -f environment.yml
 ## Reference
 
 - [HiFuse](https://github.com/huoxiangzuo/HiFuse)
+- [Vision Transformer](https://github.com/google-research/vision_transformer)
