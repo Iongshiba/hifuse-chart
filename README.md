@@ -1,4 +1,4 @@
-# Chart Detection with HiFuse Backbone
+# TriFuse: a Feature Fusion approach for Chart Detection
 
 ## Setup Environment
 
