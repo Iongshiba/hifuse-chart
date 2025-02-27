@@ -37,6 +37,7 @@ class Embeddings(nn.Module):
     def __init__(
         self, patch_size, in_chans, embed_dim, norm_layer=None, dropout_prob=0.0
     ):
+        super().__init__()
         self.patch_embeddings = PatchEmbeddings(
             patch_size=patch_size,
             in_c=in_chans,
