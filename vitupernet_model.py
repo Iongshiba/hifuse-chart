@@ -35,7 +35,13 @@ class Embeddings(nn.Module):
     """
 
     def __init__(
-        self, patch_size, in_chans, embed_dim, norm_layer=None, dropout_prob=0.0
+        self,
+        patch_size,
+        patch_num,
+        in_chans,
+        embed_dim,
+        norm_layer=None,
+        dropout_prob=0.0,
     ):
         super().__init__()
         self.patch_embeddings = PatchEmbeddings(
@@ -46,7 +52,7 @@ class Embeddings(nn.Module):
         )
 
         self.position_embeddings = nn.parameter.Parameter(
-            torch.rand(1, self.patch_embeddings.num_patches, embed_dim)
+            torch.rand(1, patch_num, embed_dim)
         )
 
         self.dropout = nn.Dropout(dropout_prob)
@@ -55,12 +61,39 @@ class Embeddings(nn.Module):
         x, _, _ = self.patch_embeddings(x)
         x = x + self.position_embeddings
         x = self.dropout(x)
+
+        # [B, patch, embed] -> [B, patch + 1, embed]
         return x
 
 
 class Attention(nn.Module):
-    pass
+    def __init__(self, embed_dim, head_dim):
+        super().__init__()
+        # square root of dk
+        self.scale = head_dim**-0.5
+        # [B, patch + 1, embed] -> [B, patch + 1, head_dim * 3]
+        self.to_qkv = nn.Linear(embed_dim, head_dim * 3, bias=False)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        B_, P_, C = x.shape
+
+        # [B, patch + 1, head_dim * 3] -> [3, B, patch + 1, head_dim]
+        qkv = self.to_qkv(x).reshape(3, B_, P_, C // 3)
+
+        # .. -> [B, patch + 1, head_dim]
+        q, k, v = qkv.unbind(0)
+
+        # Attention calculation
+        attn = self.softmax(q @ k.transpose(-2, -1) * self.scale) @ v
+
+        return attn
 
 
 class MLP(nn.Module):
     pass
+
+
+class Transformer(nn.Module):
+    def __init__(self):
+        super().__init__()
