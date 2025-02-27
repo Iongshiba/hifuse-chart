@@ -916,7 +916,9 @@ class PatchEmbed(nn.Module):
         self.patch_size = patch_size
         self.in_chans = in_c
         self.embed_dim = embed_dim
-        self.num_patches = (IMAGE_SIZE[0] // patch_size) * (IMAGE_SIZE[1] // patch_size)
+        self.num_patches = (IMAGE_SIZE[0] // patch_size[0]) * (
+            IMAGE_SIZE[1] // patch_size[0]
+        )
         self.proj = nn.Conv2d(
             in_c, embed_dim, kernel_size=patch_size, stride=patch_size
         )
