@@ -5,6 +5,8 @@ import torch.utils.checkpoint as checkpoint
 import numpy as np
 from typing import Optional
 
+from config import *
+
 
 def drop_path_f(x, drop_prob: float = 0.0, training: bool = False):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
@@ -914,6 +916,7 @@ class PatchEmbed(nn.Module):
         self.patch_size = patch_size
         self.in_chans = in_c
         self.embed_dim = embed_dim
+        self.num_patches = (IMAGE_SIZE[0] // patch_size) * (IMAGE_SIZE[1] // patch_size)
         self.proj = nn.Conv2d(
             in_c, embed_dim, kernel_size=patch_size, stride=patch_size
         )
@@ -943,6 +946,7 @@ class PatchEmbed(nn.Module):
         x = self.proj(x)
         _, _, H, W = x.shape
         # H, W at this stage is the number of tokens (image_H, image_W // patch_size)
+        # C is embed_dim
         # flatten: [B, C, H, W] -> [B, C, HW]
         # transpose: [B, C, HW] -> [B, HW, C]
         x = x.flatten(2).transpose(1, 2)
