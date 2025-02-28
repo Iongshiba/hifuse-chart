@@ -1,4 +1,2 @@
-/ViT/MNIST
-/ViT/oxford-iiit-pet
-ViT/An's test.ipynb
-ViT/__pycache__/vit.cpython-310.pyc
+/oxford-iiit-pet
+__pycache__/model_utils.cpython-310.pyc
