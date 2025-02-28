@@ -1,4 +1,6 @@
 from torch import nn, cat, rand, _assert
+import torch.nn.functional as F
+from torch.nn.modules import BatchNorm2d
 from torchvision.ops.misc import MLP
 from einops.layers.torch import Rearrange
 from einops import repeat
@@ -7,9 +9,9 @@ from einops import repeat
 class PatchEmbedding(nn.Module):
     def __init__(
         self,
-        in_channel: int,
-        emb_size: int,
-        patch_size: int,
+        in_channel: int = 3,
+        emb_size: int = 128,
+        patch_size: int = 16,
     ):
         super().__init__()
         self.project = nn.Sequential(
@@ -110,9 +112,59 @@ class TransformerBlock(nn.Module):
         return x
 
 
-# class PreNorm(nn.Module):
-#     def __init__(self):
-#         pass
-#
-#     def forward(self, x):
-#         pass
+class PyramidPoolingModule(nn.Module):
+    def __init__(
+        self, in_channels: int, out_channels: int = 256, pool_sizes=[1, 2, 3, 6]
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.pool_sizes = pool_sizes
+
+        self.avg_pooled = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.AdaptiveAvgPool2d(pool_size),
+                    nn.Conv2d(
+                        in_channels=in_channels,
+                        out_channels=in_channels // 4,
+                        kernel_size=1,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(num_features=in_channels // 4),
+                    nn.ReLU(inplace=True),
+                )
+                for pool_size in pool_sizes
+            ]
+        )
+
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=3,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        h, w = x.shape[2], x.shape[3]
+        pooled_layers = [
+            F.interpolate(layer(x), size=(h, w), mode="bilinear", align_corners=False)
+            for layer in self.avg_pooled
+        ]
+
+        x = cat([x] + pooled_layers, dim=1)
+
+        return self.final_conv(x)
+
+
+class temp(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+
+    def forward(self, x):
+        pass
