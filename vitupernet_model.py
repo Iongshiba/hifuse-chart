@@ -1,99 +1,171 @@
-import torch
-import torch.nn as nn
+from torch import nn, cat, rand, _assert
 import torch.nn.functional as F
-import torch.utils.checkpoint as checkpoint
-import numpy as np
-from typing import Optional
-
-from hifuse_model import PatchEmbed as PatchEmbeddings
-from config import *
+from torch.nn.modules import BatchNorm2d
+from torchvision.ops.misc import MLP
+from einops.layers.torch import Rearrange
+from einops import repeat
 
 
-class PatchEmbed(nn.Module):
-    # REUSE FROM HIFUSE
-    pass
-
-
-class main_model(nn.Module):
-
+# COULD USE HIFUSE PATCHEMBEDDING MODULE
+class PatchEmbedding(nn.Module):
     def __init__(
         self,
-        patch_size=4,
-        in_chans=3,
-        embed_dim=1024,
-        num_trans=(4, 6, 8, 6),
-        num_heads=(16, 16, 16, 16),
-        norm_layer=nn.LayerNorm,
-        **kwargs
+        in_channel: int = 3,
+        emb_size: int = 128,
+        patch_size: int = 16,
     ):
         super().__init__()
-
-
-class Embeddings(nn.Module):
-    """
-    Combine the patch embeddings with the position embeddings.
-    """
-
-    def __init__(
-        self,
-        patch_size,
-        patch_num,
-        in_chans,
-        embed_dim,
-        norm_layer=None,
-        dropout_prob=0.0,
-    ):
-        super().__init__()
-        self.patch_embeddings = PatchEmbeddings(
-            patch_size=patch_size,
-            in_c=in_chans,
-            embed_dim=embed_dim,
-            norm_layer=norm_layer,
+        self.project = nn.Sequential(
+            Rearrange(
+                "b c (h p1) (w p2) -> b (h w) (p1 p2 c)", p1=patch_size, p2=patch_size
+            ),
+            nn.Linear((in_channel * patch_size * patch_size), emb_size),
         )
-
-        self.position_embeddings = nn.parameter.Parameter(
-            torch.rand(1, patch_num, embed_dim)
-        )
-
-        self.dropout = nn.Dropout(dropout_prob)
 
     def forward(self, x):
-        x, _, _ = self.patch_embeddings(x)
-        x = x + self.position_embeddings
-        x = self.dropout(x)
+        return self.project(x)
 
-        # [B, patch, embed] -> [B, patch + 1, embed]
+
+class Embedding(nn.Module):
+    def __init__(
+        self,
+        in_channel: int,
+        img_size: int,
+        emb_size: int,
+        patch_size: int,
+        dropout: float,
+    ):
+        super().__init__()
+        self.num_patch = (img_size**2) // (patch_size**2)
+        _assert(
+            isinstance(self.num_patch, int),
+            "Number of patches derived from image size and patch size is not an integer",
+        )
+
+        self.patch_embedding = PatchEmbedding(
+            in_channel=in_channel, emb_size=emb_size, patch_size=patch_size
+        )
+        self.cls_token = nn.Parameter(rand(1, 1, emb_size))
+        self.position_embedding = nn.Parameter(rand(1, self.num_patch + 1, emb_size))
+        self.dropout = nn.Dropout(p=dropout)
+
+    def forward(self, img):
+        x = self.patch_embedding(img)
+        b = x.shape[0]
+        cls_token = repeat(self.cls_token, "1 1 d -> b 1 d", b=b)
+        x = cat([x, cls_token], dim=1)
+        x += self.position_embedding
+        x = self.dropout(x)
         return x
 
 
 class Attention(nn.Module):
-    def __init__(self, embed_dim, head_dim):
+    def __init__(self, emb_dim: int, num_heads: int, dropout: float):
         super().__init__()
-        # square root of dk
-        self.scale = head_dim**-0.5
-        # [B, patch + 1, embed] -> [B, patch + 1, head_dim * 3]
-        self.to_qkv = nn.Linear(embed_dim, head_dim * 3, bias=False)
-        self.softmax = nn.Softmax(dim=-1)
+        self.att = nn.MultiheadAttention(
+            embed_dim=emb_dim, num_heads=num_heads, dropout=dropout
+        )
+        self.qkv = nn.Linear(emb_dim, emb_dim * 3, bias=False)
 
     def forward(self, x):
-        B_, P_, C = x.shape
-
-        # [B, patch + 1, head_dim * 3] -> [3, B, patch + 1, head_dim]
-        qkv = self.to_qkv(x).reshape(3, B_, P_, C // 3)
-
-        # .. -> [B, patch + 1, head_dim]
-        q, k, v = qkv.unbind(0)
-
-        # Attention calculation
-        attn = self.softmax(q @ k.transpose(-2, -1) * self.scale) @ v
-
-        return attn
+        q, k, v = self.qkv(x).chunk(3, dims=-1)
+        return self.att(q, k, v)
 
 
-class MLP(nn.Module):
-    pass
+class MLP(MLP):
+    def __init__(self, in_dim, mlp_dim, dropout):
+        super().__init__(
+            in_channels=in_dim, hidden_channels=[in_dim, mlp_dim], dropout=dropout
+        )
 
 
-class Transformer(nn.Module):
+class ResidualAdd(nn.Module):
+    def __init__(self, fn):
+        self.fn = fn
+
+    def forward(self, x, **kwargs):
+        res = x
+        x = self.fn(x, **kwargs)
+        x = x + res
+        return x
+
+
+class PreNorm(nn.Module):
+    def __init__(self, dim, fn):
+        self.norm = nn.LayerNorm(dim)
+        self.fn = fn
+
+    def forward(self, x, **kwargs):
+        return self.fn(self.norm(x), **kwargs)
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, emb_size, num_heads, dropout):
+        super().__init__()
+        self.att = Attention(emb_dim=emb_size, num_heads=num_heads, dropout=dropout)
+        self.mlp = MLP(in_dim=emb_size, mlp_dim=emb_size, dropout=dropout)
+        self.attResidualAdd = ResidualAdd(PreNorm(emb_size, self.att))
+        self.mlpResidualAdd = ResidualAdd(PreNorm(emb_size, self.mlp))
+
+    def forward(self, x):
+        x = self.attResidualAdd(x)
+        x = self.mlpResidualAdd(x)
+        return x
+
+
+class PyramidPoolingModule(nn.Module):
+    def __init__(
+        self, in_channels: int, out_channels: int = 256, pool_sizes=[1, 2, 3, 6]
+    ):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.pool_sizes = pool_sizes
+
+        self.avg_pooled = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.AdaptiveAvgPool2d(pool_size),
+                    nn.Conv2d(
+                        in_channels=in_channels,
+                        out_channels=in_channels // 4,
+                        kernel_size=1,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(num_features=in_channels // 4),
+                    nn.ReLU(inplace=True),
+                )
+                for pool_size in pool_sizes
+            ]
+        )
+
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=3,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        h, w = x.shape[2], x.shape[3]
+        pooled_layers = [
+            F.interpolate(layer(x), size=(h, w), mode="bilinear", align_corners=False)
+            for layer in self.avg_pooled
+        ]
+
+        x = cat([x] + pooled_layers, dim=1)
+
+        return self.final_conv(x)
+
+
+class temp(nn.Module):
     def __init__(self):
         super().__init__()
+        pass
+
+    def forward(self, x):
+        pass
