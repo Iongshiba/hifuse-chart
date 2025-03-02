@@ -1,4 +1,4 @@
-from torch import nn, cat, rand, _assert
+from torch import alias_copy, align_tensors, nn, cat, rand, _assert, softmax
 import torch.nn.functional as F
 from torch.nn.modules import BatchNorm2d
 from torchvision.ops.misc import MLP
@@ -162,10 +162,150 @@ class PyramidPoolingModule(nn.Module):
         return self.final_conv(x)
 
 
-class temp(nn.Module):
-    def __init__(self):
+class ViTUperNet(nn.Module):
+    def __init__(
+        self,
+        img_size=256,
+        patch_size=16,
+        num_class=4,
+        in_channels=3,
+        out_channels=256,
+        embed_dim=1024,
+        num_trans=(4, 6, 8, 6),
+        num_heads=(16, 16, 16, 16),
+        dropout=0.1,
+        norm_layer=nn.LayerNorm,
+        **kwargs,
+    ):
         super().__init__()
-        pass
 
-    def forward(self, x):
-        pass
+        self.num_patch = img_size // patch_size
+        self.C = patch_size**2 * in_channels
+
+        self.embeddings = Embedding(
+            in_channel=in_channels,
+            img_size=img_size,
+            emb_size=embed_dim,
+            patch_size=patch_size,
+            dropout=dropout,
+        )
+
+        self.transformers = nn.ModuleList(
+            [
+                nn.Sequential(
+                    *[
+                        TransformerBlock(
+                            emb_size=embed_dim, num_heads=num_head, dropout=dropout
+                        )
+                        for _ in range(num_tran)
+                    ]
+                )
+                for num_head, num_tran in zip(num_heads, num_trans)
+            ]
+        )
+        self.ppm = PyramidPoolingModule(
+            in_channels=embed_dim, out_channels=out_channels
+        )
+        self.max_pool = nn.MaxPool2d(kernel_size=2)
+        self.conv1x1 = nn.Conv2d(
+            in_channels=embed_dim, out_channels=out_channels, kernel_size=1
+        )
+        self.conv3x3 = nn.Conv2d(
+            in_channels=out_channels, out_channels=out_channels, kernel_size=3
+        )
+        self.conv3x3fusion = nn.Conv2d(
+            in_channels=embed_dim, out_channels=out_channels, kernel_size=3
+        )
+
+        self.stage1Upscale = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels=self.C,
+                out_channels=embed_dim,
+                kernel_size=2,
+                stride=2,
+                bias=False,
+            ),
+            norm_layer(out_channels),
+            nn.GELU(),
+            nn.ConvTranspose2d(
+                in_channels=embed_dim,
+                out_channels=embed_dim,
+                kernel_size=2,
+                stride=2,
+                bias=False,
+            ),
+        )
+        self.stage2Upscale = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels=self.C,
+                out_channels=embed_dim,
+                kernel_size=2,
+                stride=2,
+                bias=False,
+            ),
+        )
+        self.stage4Downscale = nn.Sequential(nn.MaxPool2d(kernel_size=2))
+
+        self.head = nn.Softmax(dim=num_class)
+
+    def forward(self, img):
+        # 1 Image Input: Embeddings (b, c, h, w) -> (b (h/16 w/16) (p p c))
+        x = self.embeddings(img)
+
+        # 2 ViT Feature Extraction
+        stage_1 = self.transformers[0](x)
+        stage_2 = self.transformers[1](stage_1)
+        stage_3 = self.transformers[2](stage_2)
+        stage_4 = self.transformers[3](stage_3)
+
+        upscaled_stage_1 = self.stage1Upscale(stage_1)
+        upscaled_stage_2 = self.stage2Upscale(stage_2)
+        downscaled_stage_4 = self.stage4Downscale(stage_4)
+
+        # 3 PPM
+        p4 = self.ppm(self.max_pool(downscaled_stage_4))  # (b, h/32, w/32, 256)
+
+        # 4 FPN
+        upscaled_p4 = F.interpolate(
+            input=p4, scale_factor=2, mode="bilinear", align_corners=False
+        )
+        p3 = self.conv3x3(
+            F.relu(upscaled_p4 + self.conv1x1(stage_3))
+        )  # (b, h/16, w/16, 256)
+
+        upscaled_p3 = F.interpolate(
+            input=p3, scale_factor=2, mode="bilinear", align_corners=False
+        )
+        p2 = self.conv3x3(
+            F.relu(upscaled_p3 + self.conv1x1(upscaled_stage_2))
+        )  # (b, h/8, w/8, 256)
+
+        upscaled_p2 = F.interpolate(
+            input=p2, scale_factor=2, mode="bilinear", align_corners=False
+        )
+        p1 = self.conv3x3(
+            F.relu(upscaled_p2 + self.conv1x1(upscaled_stage_1))
+        )  # (b, h/4, w/4, 256)
+
+        # 5 Feature fusion
+
+        fusion_p4, fusion_p3, fusion_p2, fusion_p1 = (
+            F.interpolate(
+                input=p,
+                size=(self.img_size // 4, self.img_size // 4),
+                align_corners=False,
+            )
+            for p in [p4, p3, p2, p1]
+        )
+
+        fusion = cat([fusion_p4, fusion_p3, fusion_p2, fusion_p1], dim=1)
+        fusion = self.conv3x3fusion(fusion)
+        fusion = F.interpolate(
+            input=fusion,
+            size=(self.img_size, self.img_size),
+            mode="bilinear",
+            align_corners=False,
+        )
+
+        # 6 Output
+        return self.head(fusion)
