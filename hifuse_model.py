@@ -461,7 +461,7 @@ class main_model(nn.Module):
 
         # [B,L,C] ---> [B,C,H,W]
         x_s_1 = torch.transpose(x_s_1, 1, 2)
-        x_s_1 = x_s_1.view(x_s_1.shape[0], -1, 56, 56)
+        x_s_1 = x_s_1.view(x_s_1.shape[0], -1, 56, 56)  # 56 because patch_size = 4
         x_s_2 = torch.transpose(x_s_2, 1, 2)
         x_s_2 = x_s_2.view(x_s_2.shape[0], -1, 28, 28)
         x_s_3 = torch.transpose(x_s_3, 1, 2)
@@ -622,8 +622,12 @@ class HFF_block(nn.Module):
         self.drop_path = DropPath(drop_rate) if drop_rate > 0.0 else nn.Identity()
 
     def forward(self, l, g, f):
-        W_local = self.W_l(l)  # local feature from Local Feature Block
-        W_global = self.W_g(g)  # global feature from Global Feature Block
+        W_local = self.W_l(
+            l
+        )  # local feature from Local Feature Block (NOT MENTIONED IN PAPER)
+        W_global = self.W_g(
+            g
+        )  # global feature from Global Feature Block (NOT MENTIONED IN PAPER)
         if f is not None:
             W_f = self.Updim(f)
             W_f = self.Avg(W_f)
@@ -776,20 +780,27 @@ class WindowAttention(nn.Module):
         #         [6, 6, 6, 6, 6, 6, 6]
         #     ]
         # ]
+
         coords_flatten = torch.flatten(coords, 1)  # [2, Mh*Mw]
         # coords_flatten = [
         #     [0, 1, 2, ..., 6, 0, 1, 2, ..., 6, ..., 0, 1, ..., 6],  # Row indices
         #     [0, 0, 0, ..., 0, 1, 1, 1, ..., 1, ..., 6, 6, ..., 6]   # Column indices
         # ]  # Shape: [2, 49]
+
         # [2, Mh*Mw, 1] - [2, 1, Mh*Mw]
+        # Subtraction with extra dimension is to create two matrix representing Row indices and Column indices in 2D dimension (images).
         relative_coords = (
             coords_flatten[:, :, None] - coords_flatten[:, None, :]
         )  # [2, Mh*Mw, Mh*Mw]
         relative_coords = relative_coords.permute(
             1, 2, 0
         ).contiguous()  # [Mh*Mw, Mh*Mw, 2]
+
+        # Adjust the column indices such that its > 0
         relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
+        # Adjust the row indices such that its > 0
         relative_coords[:, :, 1] += self.window_size[1] - 1
+
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1  # ???????
         # Relative Positional Embeddings
         relative_position_index = relative_coords.sum(-1)  # [Mh*Mw, Mh*Mw]
@@ -899,9 +910,9 @@ class Global_block(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.shift_size = shift_size
-        assert 0 <= self.shift_size < self.window_size, (
-            "shift_size must in 0-window_size"
-        )
+        assert (
+            0 <= self.shift_size < self.window_size
+        ), "shift_size must in 0-window_size"
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
