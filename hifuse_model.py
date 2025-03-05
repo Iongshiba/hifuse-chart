@@ -156,7 +156,7 @@ class FPN_Block(nn.Module):
         # self.act = nn.ReLU(inplace=True)
 
     def forward(self, p, f):
-        p = self.pwconv(p)
+        f = self.pwconv(f)
         p = self.upsample(p)
         p = p + f
         # p = self.norm(p)
@@ -173,7 +173,7 @@ class PyramidPoolingModule(nn.Module):
                     nn.AdaptiveAvgPool2d(pool_size),
                     nn.Conv2d(
                         in_channels=in_channels,
-                        out_channels=out_channels / 4,
+                        out_channels=in_channels // 4,
                         kernel_size=1,
                         bias=False,
                     ),
@@ -186,7 +186,7 @@ class PyramidPoolingModule(nn.Module):
 
         self.final_conv = nn.Sequential(
             nn.Conv2d(
-                in_channels=in_channels + len(pool_sizes) * out_channels,
+                in_channels=in_channels * 2,
                 out_channels=out_channels,
                 kernel_size=3,
                 padding=1,
@@ -417,10 +417,10 @@ class main_model(nn.Module):
 
         ###### Feature Pyramid Network Setting ######
 
-        self.ppm = PyramidPoolingModule(in_channels=768, out_channels=768)
-        self.p4 = FPN_Block(in_channels=768, out_channels=384)
-        self.p3 = FPN_Block(in_channels=384, out_channels=192)
-        self.p2 = FPN_Block(in_channels=192, out_channels=96)
+        self.ppm = PyramidPoolingModule(in_channels=768, out_channels=96)
+        self.p4 = FPN_Block(in_channels=384, out_channels=96)
+        self.p3 = FPN_Block(in_channels=192, out_channels=96)
+        self.p2 = FPN_Block(in_channels=96, out_channels=96)
 
         ###### Retina Detection Head Setting ######
 
