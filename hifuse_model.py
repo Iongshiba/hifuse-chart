@@ -173,12 +173,12 @@ class PyramidPoolingModule(nn.Module):
                     nn.AdaptiveAvgPool2d(pool_size),
                     nn.Conv2d(
                         in_channels=in_channels,
-                        out_channels=out_channels,
+                        out_channels=out_channels / 4,
                         kernel_size=1,
                         bias=False,
                     ),
-                    nn.GroupNorm(32, out_channels),
-                    nn.ReLU(inplace=True),
+                    # nn.GroupNorm(32, out_channels),
+                    # nn.ReLU(inplace=True),
                 )
                 for pool_size in pool_sizes
             ]
@@ -192,8 +192,8 @@ class PyramidPoolingModule(nn.Module):
                 padding=1,
                 bias=False,
             ),
-            nn.GroupNorm(32, out_channels),
-            nn.ReLU(inplace=True),
+            # nn.GroupNorm(32, out_channels),
+            # nn.ReLU(inplace=True),
         )
 
     def forward(self, x):
