@@ -2,10 +2,141 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
+from torchvision.ops import AnchorGenerator
 import numpy as np
 from typing import Optional
 
 from config import *
+
+
+##### Retina Bounding Box Detection Head #####
+class RetinaHead(nn.Module):
+    def __init__(
+        self,
+        num_classes: int,
+        in_channels_list: list[int] = [96, 192, 384, 768],
+        num_anchors: int = 9,
+        out_channels=192,
+    ):
+        super().__init__()
+
+        # 1x1 Convolutions to unify channels
+        self.channel_align = nn.ModuleList(
+            [
+                nn.Conv2d(in_channels, out_channels, kernel_size=1)
+                for in_channels in in_channels_list
+            ]
+        )
+
+        # Classification branch
+        self.cls_subnet = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.cls_logits = nn.Conv2d(
+            out_channels, num_anchors * num_classes, kernel_size=3, padding=1
+        )
+
+        # Regression branch
+        self.reg_subnet = nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.bbox_reg = nn.Conv2d(
+            out_channels, num_anchors * 4, kernel_size=3, padding=1
+        )
+
+    def forward(self, feature_maps):
+        cls_preds = []
+        reg_preds = []
+
+        for i, feature in enumerate(feature_maps):
+            feature = self.channel_align[i](feature)  # Align channels to `out_channels`
+            cls_out = self.cls_logits(self.cls_subnet(feature))
+            reg_out = self.bbox_reg(self.reg_subnet(feature))
+
+            cls_preds.append(cls_out)
+            reg_preds.append(reg_out)
+
+        return cls_preds, reg_preds
+
+
+##### Feature Pyramid Network Component #####
+class FPN_Block(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+
+        self.upsample = nn.Upsample(
+            scale_factor=2, mode="bilinear", align_corners=False
+        )
+        self.pwconv = nn.Conv2d(
+            in_channels=in_channels, out_channels=out_channels, kernel_size=1
+        )
+        # self.norm = nn.BatchNorm2d(out_channels) # An's Note: Try training without normalization first, then try BatchNorm and GroupNorm to see if there is any improvement
+        # self.act = nn.ReLU(inplace=True)
+
+    def forward(self, p, f):
+        p = self.pwconv(p)
+        p = self.upsample(p)
+        p = p + f
+        # p = self.norm(p)
+        # p = self.act(p)
+        return p
+
+
+class PyramidPoolingModule(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, pool_sizes=[1, 2, 3, 6]):
+        super().__init__()
+        self.avg_pooled = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.AdaptiveAvgPool2d(pool_size),
+                    nn.Conv2d(
+                        in_channels=in_channels,
+                        out_channels=out_channels,
+                        kernel_size=1,
+                        bias=False,
+                    ),
+                    nn.GroupNorm(32, out_channels),
+                    nn.ReLU(inplace=True),
+                )
+                for pool_size in pool_sizes
+            ]
+        )
+
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels + len(pool_sizes) * out_channels,
+                out_channels=out_channels,
+                kernel_size=3,
+                padding=1,
+                bias=False,
+            ),
+            nn.GroupNorm(32, out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        h, w = x.shape[2], x.shape[3]
+        pooled_layers = [
+            F.interpolate(layer(x), size=(h, w), mode="bilinear", align_corners=False)
+            for layer in self.avg_pooled
+        ]
+
+        x = torch.cat([x] + pooled_layers, dim=1)
+        return self.final_conv(x)
 
 
 def drop_path_f(x, drop_prob: float = 0.0, training: bool = False):
@@ -42,7 +173,6 @@ class DropPath(nn.Module):
 
 
 class main_model(nn.Module):
-
     def __init__(
         self,
         num_classes,
@@ -103,10 +233,10 @@ class main_model(nn.Module):
             self.stages.append((stage))
             cur += conv_depths[i]
 
-        self.conv_norm = nn.LayerNorm(conv_dims[-1], eps=1e-6)  # final norm layer
-        self.conv_head = nn.Linear(conv_dims[-1], num_classes)
-        self.conv_head.weight.data.mul_(conv_head_init_scale)
-        self.conv_head.bias.data.mul_(conv_head_init_scale)
+        # self.conv_norm = nn.LayerNorm(conv_dims[-1], eps=1e-6)  # final norm layer
+        # self.conv_head = nn.Linear(conv_dims[-1], num_classes)
+        # self.conv_head.weight.data.mul_(conv_head_init_scale)
+        # self.conv_head.bias.data.mul_(conv_head_init_scale)
 
         ###### Global Branch Setting ######
 
@@ -216,6 +346,28 @@ class main_model(nn.Module):
             ch_1=768, ch_2=768, r_2=16, ch_int=768, ch_out=768, drop_rate=HFF_dp
         )
 
+        ###### Feature Pyramid Network Setting ######
+
+        self.ppm = PyramidPoolingModule(in_channels=768, out_channels=768)
+        self.p4 = FPN_Block(in_channels=768, out_channels=384)
+        self.p3 = FPN_Block(in_channels=384, out_channels=192)
+        self.p2 = FPN_Block(in_channels=192, out_channels=96)
+
+        ###### Retina Detection Head Setting ######
+
+        self.num_anchors = 9
+
+        self.anchor_generator = AnchorGenerator(
+            sizes=((32,), (64,), (128,), (256,)), aspect_ratios=((0.5, 1.0, 2.0),) * 4
+        )
+
+        self.retina_head = RetinaHead(
+            num_classes=self.num_classes,
+            in_channels_list=[96, 192, 384, 768],
+            num_anchors=self.num_anchors,
+            out_channels=192,
+        )
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             nn.init.trunc_normal_(m.weight, std=0.02)
@@ -229,7 +381,6 @@ class main_model(nn.Module):
             nn.init.constant_(m.bias, 0)
 
     def forward(self, imgs):
-
         ######  Global Branch ######
         x_s, H, W = self.patch_embed(imgs)
         x_s = self.pos_drop(x_s)
@@ -248,6 +399,11 @@ class main_model(nn.Module):
         x_s_4 = torch.transpose(x_s_4, 1, 2)
         x_s_4 = x_s_4.view(x_s_4.shape[0], -1, 7, 7)
 
+        # print(x_s_1.shape)
+        # print(x_s_2.shape)
+        # print(x_s_3.shape)
+        # print(x_s_4.shape)
+
         ######  Local Branch ######
         x_c = self.downsample_layers[0](imgs)
         x_c_1 = self.stages[0](x_c)
@@ -258,17 +414,40 @@ class main_model(nn.Module):
         x_c = self.downsample_layers[3](x_c_3)
         x_c_4 = self.stages[3](x_c)
 
+        # print(x_c_1.shape)
+        # print(x_c_2.shape)
+        # print(x_c_3.shape)
+        # print(x_c_4.shape)
+
         ###### Hierachical Feature Fusion Path ######
         x_f_1 = self.fu1(x_c_1, x_s_1, None)
         x_f_2 = self.fu2(x_c_2, x_s_2, x_f_1)
         x_f_3 = self.fu3(x_c_3, x_s_3, x_f_2)
         x_f_4 = self.fu4(x_c_4, x_s_4, x_f_3)
-        x_fu = self.conv_norm(
-            x_f_4.mean([-2, -1])
-        )  # global average pooling, (N, C, H, W) -> (N, C)
-        x_fu = self.conv_head(x_fu)
 
-        return x_fu
+        # print(x_f_1.shape)
+        # print(x_f_2.shape)
+        # print(x_f_3.shape)
+        # print(x_f_4.shape)
+
+        ###### Feature Pyramid Network Path ######
+        x_p_4 = self.ppm(x_f_4)
+        x_p_3 = self.p4(x_p_4, x_f_3)
+        x_p_2 = self.p2(x_p_3, x_f_2)
+        x_p_1 = self.p1(x_p_2, x_f_1)
+
+        ###### Retina Head Detection ######
+
+        return self.retina_head([x_p_1, x_p_2, x_p_3, x_p_4])
+
+        # x_fu = self.conv_norm(
+        #     x_f_4.mean([-2, -1])
+        # )  # global average pooling, (N, C, H, W) -> (N, C)
+        # x_fu = self.conv_head(x_fu)
+
+        # print(x_fu.shape)
+
+        # return x_fu
 
 
 ##### Local Feature Block Component #####
@@ -373,7 +552,6 @@ class HFF_block(nn.Module):
         self.drop_path = DropPath(drop_rate) if drop_rate > 0.0 else nn.Identity()
 
     def forward(self, l, g, f):
-
         W_local = self.W_l(l)  # local feature from Local Feature Block
         W_global = self.W_g(g)  # global feature from Global Feature Block
         if f is not None:
@@ -464,7 +642,6 @@ class IRMLP(nn.Module):
         self.bn1 = nn.BatchNorm2d(inp_dim)
 
     def forward(self, x):
-
         residual = x
         out = self.conv1(x)
         out = self.gelu(out)
@@ -497,7 +674,6 @@ class WindowAttention(nn.Module):
     def __init__(
         self, dim, window_size, num_heads, qkv_bias=True, attn_drop=0.0, proj_drop=0.0
     ):
-
         super().__init__()
         self.dim = dim
         self.window_size = window_size  # [Mh, Mw]
@@ -653,9 +829,9 @@ class Global_block(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.shift_size = shift_size
-        assert (
-            0 <= self.shift_size < self.window_size
-        ), "shift_size must in 0-window_size"
+        assert 0 <= self.shift_size < self.window_size, (
+            "shift_size must in 0-window_size"
+        )
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
@@ -729,7 +905,6 @@ class Global_block(nn.Module):
             x = shifted_x
 
         if pad_r > 0 or pad_b > 0:
-
             x = x[:, :H, :W, :].contiguous()
 
         x = x.view(B, H * W, C)
@@ -843,7 +1018,6 @@ class BasicLayer(nn.Module):
         return attn_mask
 
     def forward(self, x, H, W):
-
         if self.downsample is not None:
             x = self.downsample(
                 x, H, W
