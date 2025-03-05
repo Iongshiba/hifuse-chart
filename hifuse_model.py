@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from torchvision.ops import AnchorGenerator
+from torchvision.models.detection.anchor_utils import AnchorGenerator
 import numpy as np
 from typing import Optional
 
@@ -433,8 +433,8 @@ class main_model(nn.Module):
         ###### Feature Pyramid Network Path ######
         x_p_4 = self.ppm(x_f_4)
         x_p_3 = self.p4(x_p_4, x_f_3)
-        x_p_2 = self.p2(x_p_3, x_f_2)
-        x_p_1 = self.p1(x_p_2, x_f_1)
+        x_p_2 = self.p3(x_p_3, x_f_2)
+        x_p_1 = self.p2(x_p_2, x_f_1)
 
         ###### Retina Head Detection ######
 
