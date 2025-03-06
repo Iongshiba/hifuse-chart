@@ -2,11 +2,37 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
+from torchvision.ops.misc import MLP
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 import numpy as np
 from typing import Optional
 
 from config import *
+
+class DETRHead(nn.Module):
+    def __init__(self, num_classes: int, num_queries: int, in_channels: int):
+        super().__init__()
+        self.num_queries = num_queries
+        self.num_classes = num_classes
+        self.in_channels = in_channels
+
+        self.class_embed = nn.Linear(in_channels, num_classes + 1)
+        # 4 is the number of coords in a bounding box
+        self.bbox_embed = MLP(
+            in_channels=in_channels,
+            hidden_channels=[in_channels, in_channels, 4],
+            activation_layer=nn.ReLU,
+        )
+        self.query_embed = nn.Embedding(num_queries, in_channels)
+
+        self.attn = 
+
+    def forward(self, x):
+        pass
+
+
+class TransformerDecoder(nn.Module):
+    pass
 
 
 ##### Retina Bounding Box Detection Head #####
@@ -39,7 +65,7 @@ class RetinaHead(nn.Module):
         self,
         num_classes: int,
         fuse_fm: bool = True,
-        in_channels_list: list[int] = [96, 192, 384, 768],
+        in_channels_list: list[int] = [96, 96, 96, 96],
         num_anchors: int = 9,
         out_channels: int = 192,
     ):
@@ -507,6 +533,11 @@ class main_model(nn.Module):
         x_p_1 = self.p2(x_p_2, x_f_1)
 
         ###### Retina Head Detection ######
+
+        print(x_p_1.shape)
+        print(x_p_2.shape)
+        print(x_p_3.shape)
+        print(x_p_4.shape)
 
         return self.retina_head([x_p_1, x_p_2, x_p_3, x_p_4])
 
