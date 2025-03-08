@@ -27,7 +27,34 @@ class DETR(nn.Module):
 
         ###### Transformer Setting ######
 
+    def _add_pos_embed(self, x, temperature=10000):
+        # x = (batch_size, sequence_length, hidden_dim)
+        _, L, C = x.shape
+
+        # dim_t = [t^(2*0/hidden_dim), t^(2*1/hidden_dim), t^(2*2/hidden_dim), t^(2*3/hidden_dim)]
+        dim_t = torch.arange(0, C, dtype=torch.float32, device=x.device)
+        dim_t = temperature ** (2 * dim_t) / C
+        # pos = (sequence_length, hidden_dim)
+        # [
+        #     [1, 1, 1, 1]
+        #     [2, 2, 2, 2]
+        #     [3, 3, 3, 3]
+        #     [4, 4, 4, 4]
+        # ]
+        pos = (
+            torch.arange(1, L + 1, dtype=torch.float32, device=x.device)
+            .unsqueeze(1)
+            .repeat(1, C)
+        )
+        # Calculating the position embedding according to Transformer paper
+        pos /= dim_t.unsqueeze(0)
+        pos[:, 1::2] = torch.cos(pos[:, 1::2])
+        pos[:, 0::2] = torch.sin(pos[:, 0::2])
+
+        return x + pos.unsqueeze(0)
+
     def forward(self, x):
+
         pass
 
 
@@ -106,3 +133,8 @@ class TransformerDecoder(nn.Module):
         x = self.norm3(x)
 
         return x
+
+
+if __name__ == "__main__":
+    x = torch.ones((1, 16, 32))
+    DETR()._add_pos_embed(x)
