@@ -10,6 +10,7 @@ import torch.nn.functional as F
 class DETR(nn.Module):
     def __init__(
         self,
+        in_channels: int,
         num_classes: int,
         num_queries: int,
         hidden_dim: int,
@@ -20,8 +21,9 @@ class DETR(nn.Module):
         temperature: int = 10000,
     ):
         super().__init__()
-        self.num_queries = num_queries
+        self.in_channels = in_channels
         self.num_classes = num_classes
+        self.num_queries = num_queries
         self.hidden_dim = hidden_dim
         self.temperature = temperature
 
@@ -33,6 +35,7 @@ class DETR(nn.Module):
             activation_layer=nn.ReLU,
         )
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        self.input_proj = nn.Conv2d(in_channels, hidden_dim, kernel_size=1)
 
         ###### Transformer Setting ######
 
@@ -45,14 +48,19 @@ class DETR(nn.Module):
 
         self.encoder = TransformerEncoder(self.encoder_layer, encoder_num)
         self.decoder = TransformerDecoder(
-            self.encoder_layer, decoder_num, nn.LayerNorm(hidden_dim)
+            self.decoder_layer, decoder_num, nn.LayerNorm(hidden_dim)
         )
 
         ###### Loss Setting ######
 
     def _pos_embed(self, x):
-        # x = (batch_size, sequence_length, hidden_dim)
-        _, H, W, C = x.shape
+        if len(x.shape) == 4:
+            B, _, H, W = x.shape
+        elif len(x.shape) == 3:
+            B, W, _ = x.shape
+            H = 1
+
+        # divide because of 2d positional embedding
         embed_dim = self.hidden_dim // 2
 
         # dim_t = [t^(2*0/hidden_dim), t^(2*1/hidden_dim), t^(2*2/hidden_dim), t^(2*3/hidden_dim)]
@@ -65,26 +73,49 @@ class DETR(nn.Module):
         y_embed = torch.arange(1, H + 1, dtype=torch.float32, device=x.device)
         x_embed = torch.arange(1, W + 1, dtype=torch.float32, device=x.device)
         x_pos, y_pos = torch.meshgrid(y_embed, x_embed)
+        x_pos = x_pos.repeat(B, 1, 1)
+        y_pos = y_pos.repeat(B, 1, 1)
 
-        x_pos = x_pos[:, :, None] / dim_t
-        y_pos = y_pos[:, :, None] / dim_t
+        x_pos = x_pos[:, :, :, None] / dim_t
+        y_pos = y_pos[:, :, :, None] / dim_t
         x_pos = torch.stack(
-            (x_pos[:, :, 0::2].sin(), x_pos[:, :, 1::2].cos()), dim=3
-        ).flatten(2)
+            (x_pos[:, :, :, 0::2].sin(), x_pos[:, :, :, 1::2].cos()), dim=4
+        ).flatten(3)
         y_pos = torch.stack(
-            (y_pos[:, :, 0::2].sin(), y_pos[:, :, 1::2].cos()), dim=3
-        ).flatten(2)
+            (y_pos[:, :, :, 0::2].sin(), y_pos[:, :, :, 1::2].cos()), dim=4
+        ).flatten(3)
 
-        pos = torch.cat((x_pos, y_pos), dim=2).unsqueeze(0).permute(0, 3, 1, 2)
+        # print(x_pos)
+        # print(y_pos)
+
+        pos = torch.cat((x_pos, y_pos), dim=3).permute(0, 3, 1, 2)
+
+        if len(x.shape) == 3:
+            pos = torch.squeeze(pos, dim=2)
+
+        # print(pos.shape)
 
         return pos
 
     def forward(self, x):
+        B, C, H, W = x.shape
+
+        # [B, in_c * 4, H, W] -> [B, hidden_dim, H, W]
+        x = self.input_proj(x)
+
+        # 2d positional embedding
+        # [B, hidden_dim, H, W]
         pos_embed = self._pos_embed(x)
 
+        # flattening and prepare for MultiheadAttention
+        # [B, C, H, W] -> [B, C, H * W] -> [H * W, B, C]
+        x = x.flatten(2).permute(2, 0, 1)
+        pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
+        query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, B, 1)
+
         memory = self.encoder(x, pos_embed)
-        target = torch.zeros_like(self.query_embed)
-        output = self.decoder(target, memory, pos_embed, self.query_embed)
+        target = torch.zeros_like(query_embed)
+        output = self.decoder(target, memory, pos_embed, query_embed)
 
         return output
 
@@ -150,7 +181,7 @@ class TransformerEncoderLayer(nn.Module):
         q = k = x + pos_embed
 
         # self-attention
-        x_attn = self.attn(q, k, x)
+        x_attn, _ = self.attn(q, k, x)
         x = x + self.dropout1(x_attn)
         x = self.norm1(x)
 
@@ -191,14 +222,14 @@ class TransformerDecoderLayer(nn.Module):
         q_self = k_self = x + query_embed
 
         # self-attention
-        self_attn = self.self_attn(q_self, k_self, x)
+        self_attn, _ = self.self_attn(q_self, k_self, x)
         x = x + self.dropout1(self_attn)
         x = self.norm1(x)
 
         # cross-attention with box query and positional embedding
         q_cross = x + query_embed
         k_cross = memory + pos_embed
-        cross_attn = self.cross_attn(q_cross, k_cross, memory)
+        cross_attn, _ = self.cross_attn(q_cross, k_cross, memory)
         x = x + self.dropout2(cross_attn)
         x = self.norm2(x)
 
@@ -214,8 +245,9 @@ def _get_clones(module, num):
 
 
 if __name__ == "__main__":
-    x = torch.ones((1, 7, 7, 3))
+    x = torch.ones((16, 7, 3))
     detr = DETR(
+        96,
         1,
         100,
         8,
