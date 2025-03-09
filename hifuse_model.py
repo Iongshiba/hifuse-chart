@@ -8,31 +8,7 @@ import numpy as np
 from typing import Optional
 
 from config import *
-
-class DETRHead(nn.Module):
-    def __init__(self, num_classes: int, num_queries: int, in_channels: int):
-        super().__init__()
-        self.num_queries = num_queries
-        self.num_classes = num_classes
-        self.in_channels = in_channels
-
-        self.class_embed = nn.Linear(in_channels, num_classes + 1)
-        # 4 is the number of coords in a bounding box
-        self.bbox_embed = MLP(
-            in_channels=in_channels,
-            hidden_channels=[in_channels, in_channels, 4],
-            activation_layer=nn.ReLU,
-        )
-        self.query_embed = nn.Embedding(num_queries, in_channels)
-
-        self.attn = 
-
-    def forward(self, x):
-        pass
-
-
-class TransformerDecoder(nn.Module):
-    pass
+from detr_model import DETR
 
 
 ##### Retina Bounding Box Detection Head #####
@@ -464,6 +440,13 @@ class main_model(nn.Module):
             out_channels=192,
         )
 
+        self.detr_head = DETR(
+            in_channels=embed_dim * 4,
+            num_classes=1,
+            num_queries=100,
+            hidden_dim=256,
+        )
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             nn.init.trunc_normal_(m.weight, std=0.02)
@@ -477,6 +460,8 @@ class main_model(nn.Module):
             nn.init.constant_(m.bias, 0)
 
     def forward(self, imgs):
+        # images (224, 224, 3)
+
         ######  Global Branch ######
         x_s, H, W = self.patch_embed(imgs)
         x_s = self.pos_drop(x_s)
@@ -515,7 +500,7 @@ class main_model(nn.Module):
         # print(x_c_3.shape)
         # print(x_c_4.shape)
 
-        ###### Hierachical Feature Fusion Path ######
+        ###### Hierachical Feature Fusion ######
         x_f_1 = self.fu1(x_c_1, x_s_1, None)
         x_f_2 = self.fu2(x_c_2, x_s_2, x_f_1)
         x_f_3 = self.fu3(x_c_3, x_s_3, x_f_2)
@@ -526,29 +511,27 @@ class main_model(nn.Module):
         # print(x_f_3.shape)
         # print(x_f_4.shape)
 
-        ###### Feature Pyramid Network Path ######
+        ###### Feature Pyramid Network ######
+        # [1, 96, 56, 56]
+        # [1, 96, 28, 28]
+        # [1, 96, 14, 14]
+        # [1, 96, 7, 7]
         x_p_4 = self.ppm(x_f_4)
         x_p_3 = self.p4(x_p_4, x_f_3)
         x_p_2 = self.p3(x_p_3, x_f_2)
         x_p_1 = self.p2(x_p_2, x_f_1)
 
-        ###### Retina Head Detection ######
+        ###### Feature Fusion ######
+        x_4 = F.interpolate(x_p_4, scale_factor=8, mode="bilinear", align_corners=False)
+        x_3 = F.interpolate(x_p_3, scale_factor=4, mode="bilinear", align_corners=False)
+        x_2 = F.interpolate(x_p_2, scale_factor=2, mode="bilinear", align_corners=False)
+        x_1 = x_p_1
 
-        print(x_p_1.shape)
-        print(x_p_2.shape)
-        print(x_p_3.shape)
-        print(x_p_4.shape)
+        x_f = torch.cat([x_4, x_3, x_2, x_1], dim=1)
 
-        return self.retina_head([x_p_1, x_p_2, x_p_3, x_p_4])
+        return self.detr_head(x_f)
 
-        # x_fu = self.conv_norm(
-        #     x_f_4.mean([-2, -1])
-        # )  # global average pooling, (N, C, H, W) -> (N, C)
-        # x_fu = self.conv_head(x_fu)
-
-        # print(x_fu.shape)
-
-        # return x_fu
+        # return self.retina_head([x_p_1, x_p_2, x_p_3, x_p_4])
 
 
 ##### Local Feature Block Component #####
