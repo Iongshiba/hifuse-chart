@@ -3,6 +3,7 @@ import torch
 
 from torch import nn
 from torchvision.ops.misc import MLP
+from scipy.optimize import linear_sum_assignment
 
 import torch.nn.functional as F
 
@@ -238,6 +239,16 @@ class TransformerDecoderLayer(nn.Module):
         x = self.norm3(x)
 
         return x
+
+
+class HungarianMatcher(nn.Module):
+    def __init__(self, cost):
+        super().__init__()
+
+
+class SetCriterion(nn.Module):
+    def __init__(self):
+        super().__init__()
 
 
 def _get_clones(module, num):
