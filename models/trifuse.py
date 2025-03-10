@@ -8,8 +8,8 @@ import numpy as np
 from typing import Optional
 
 from config import *
-from detr import DETR
-from retina import Retina
+from models.detr import DETR
+from models.retina import Retina
 
 
 ##### Feature Pyramid Network Component #####
