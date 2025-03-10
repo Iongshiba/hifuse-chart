@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from torchvision.ops.misc import MLP
 from scipy.optimize import linear_sum_assignment
+from utils.misc import get_clones, box_cxcywh_to_xyxy, generalized_iou
 
 import torch.nn.functional as F
 
@@ -118,13 +119,28 @@ class DETR(nn.Module):
         target = torch.zeros_like(query_embed)
         output = self.decoder(target, memory, pos_embed, query_embed)
 
-        return output
+        out_class = self.class_embed(output)
+        out_bbox = self.bbox_embed(output)
+
+        import cv2 as cv
+
+        targets = [
+            {
+                "labels": torch.tensor([0]),
+                "boxes": torch.tensor([[0.471, 0.564, 0.130, 0.214]]),
+            }
+        ]
+
+        criterion = HungarianMatcher()
+
+        return criterion({"pred_logits": out_class, "pred_boxes": out_bbox}, targets)
+        # return output
 
 
 class TransformerEncoder(nn.Module):
     def __init__(self, encoder_layer, num_layers, norm=None):
         super().__init__()
-        self.layers = _get_clones(encoder_layer, num_layers)
+        self.layers = get_clones(encoder_layer, num_layers)
         self.norm = norm
 
     def forward(self, x, pos_embed):
@@ -142,7 +158,7 @@ class TransformerEncoder(nn.Module):
 class TransformerDecoder(nn.Module):
     def __init__(self, decoder_layer, num_layers, norm=None):
         super().__init__()
-        self.layers = _get_clones(decoder_layer, num_layers)
+        self.layers = get_clones(decoder_layer, num_layers)
         self.norm = norm
 
     def forward(self, x, memory, pos_embed, query_embed):
@@ -241,18 +257,83 @@ class TransformerDecoderLayer(nn.Module):
         return x
 
 
-class HungarianMatcher(nn.Module):
-    def __init__(self, cost):
+class SetCriterion(nn.Module):
+    def __init__():
         super().__init__()
+
+    def loss_boxes(self, outputs, targets, indices):
+        pass
+
+    def forward(self):
+        pass
+
+
+class HungarianMatcher(nn.Module):
+    def __init__(
+        self, class_weight: float = 1, bbox_weight: float = 1, l1_weight: float = 1
+    ):
+        super().__init__()
+        self.class_weight = class_weight
+        self.bbox_weight = bbox_weight
+        self.l1_weight = l1_weight
+
+    def forward(self, outputs, targets):
+        B, N, _ = outputs["pred_logits"].shape
+        # outputs: This is a dict that contains at least these entries:
+        #          "pred_logits": Tensor of dim [batch_size, num_queries, num_classes] with the classification logits
+        #          "pred_boxes": Tensor of dim [batch_size, num_queries, 4] with the predicted box coordinates
+
+        # targets: This is a list of targets (len(targets) = batch_size), where each target is a dict containing:
+        #         "labels": Tensor of dim [num_target_boxes] (where num_target_boxes is the number of ground-truth
+        #                 objects in the target) containing the class labels
+        #         "boxes": Tensor of dim [num_target_boxes, 4] containing the target box coordinates
+        out_class = outputs["pred_logits"]
+        out_bbox = outputs["pred_boxes"]
+        tgt_ids = torch.cat([v["labels"] for v in targets])
+        tgt_bbox = torch.cat([v["boxes"] for v in targets])
+
+        # num_classes = num_boxes in targets
+        # [batch_size, num_queries, num_classes] -> [batch_size * num_queries, num_classes]
+        # [batch_size, num_queries, 4] -> [batch_size * num_queries, 4]
+        out_prob = out_class.flatten(0, 1).softmax(-1)
+        out_bbox = out_bbox.flatten(0, 1)
+
+        # In the matching cost, we use probabilities instead of log-probabilities.
+        # This makes the class prediction term commensurable (same standard) to box loss, and we observed better empirical performances.
+        class_cost = -out_prob[:, tgt_ids]
+        bbox_cost = generalized_iou(
+            box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
+        )
+        l1_cost = torch.cdist(out_bbox, tgt_bbox, p=1)
+
+        # [batch_size * num_queries, total tgt_bbox in the batch]
+        cost = (
+            self.class_weight * class_cost
+            + self.bbox_weight * bbox_cost
+            + self.l1_weight * l1_cost
+        )
+        cost = cost.view(B, N, -1).cpu()
+
+        # len(tgt_bbox_per_img) = batch_sizae
+        tgt_bbox_per_img = [len(v["labels"]) for v in targets]
+        # [batch_size, tuples each contains pair (output_bbox, tgt_bbox) in an image]
+        indices = [
+            linear_sum_assignment(c[i])
+            for i, c in enumerate(cost.split(tgt_bbox_per_img, -1))
+        ]
+
+        return [
+            (
+                torch.as_tensor(i, dtype=torch.int64),
+                torch.as_tensor(j, dtype=torch.int64),
+            )
+            for i, j in indices
+        ]
 
 
 class SetCriterion(nn.Module):
     def __init__(self):
         super().__init__()
-
-
-def _get_clones(module, num):
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(num)])
 
 
 if __name__ == "__main__":
