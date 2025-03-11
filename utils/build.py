@@ -2,6 +2,43 @@ import math
 import torch
 
 
+import torch.nn as nn
+import torch.nn.functional as F
+
+from models.trifuse import TriFuse
+
+
+def TriFuse_Tiny(num_classes: int, head: str = "detr"):
+
+    model = TriFuse(
+        depths=(2, 2, 2, 2),
+        conv_depths=(2, 2, 2, 2),
+        num_classes=num_classes,
+        head=head,
+    )
+    return model
+
+
+def TriFuse_Small(num_classes: int, head: str = "detr"):
+    model = TriFuse(
+        depths=(2, 2, 6, 2),
+        conv_depths=(2, 2, 6, 2),
+        num_classes=num_classes,
+        head=head,
+    )
+    return model
+
+
+def TriFuse_Base(num_classes: int, head: str = "detr"):
+    model = TriFuse(
+        depths=(2, 2, 18, 2),
+        conv_depths=(2, 2, 18, 2),
+        num_classes=num_classes,
+        head=head,
+    )
+    return model
+
+
 def create_lr_scheduler(
     optimizer,
     num_step: int,
