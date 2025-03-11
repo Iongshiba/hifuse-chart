@@ -127,22 +127,36 @@ class DETR(nn.Module):
         out_class = self.class_embed(output).permute(1, 0, 2)
         out_bbox = self.bbox_embed(output).sigmoid().permute(1, 0, 2)
 
-        targets = [
-            {
-                "labels": torch.tensor([0]),
-                "boxes": torch.tensor([[105.5, 126, 29, 48]]),
-            }
-        ]
+        # targets = [
+        #     {
+        #         "labels": torch.tensor([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+        #         "boxes": torch.tensor(
+        #             [
+        #                 [20.2, 17.6, 44.7, 24.8],
+        #                 [20.0, 44.7, 43.8, 24.3],
+        #                 [120.0, 16.7, 41.2, 25.4],
+        #                 [48.2, 17.7, 44.7, 25.8],
+        #                 [48.1, 44.4, 45.0, 26.2],
+        #                 [156.7, 16.7, 38.7, 25.7],
+        #                 [120.0, 29.1, 41.2, 25.4],
+        #                 [156.7, 28.7, 38.7, 24.8],
+        #                 [119.4, 53.0, 45.7, 25.9],
+        #                 [157.7, 53.2, 41.8, 27.1],
+        #                 [119.3, 67.6, 44.3, 27.4],
+        #                 [157.6, 67.4, 45.7, 27.0],
+        #             ]
+        #         ),
+        #     }
+        # ]
         outputs = {
             "pred_logits": out_class,
             "pred_boxes": out_bbox,
         }
 
-        criterion = SetCriterion(1)
-        loss = criterion(outputs, targets)
+        # criterion = SetCriterion(1)
+        # loss = criterion(outputs, targets)
 
-        return loss
-        # return output
+        return outputs
 
 
 class TransformerEncoder(nn.Module):
@@ -277,22 +291,23 @@ class SetCriterion(nn.Module):
     def loss_labels(self, outputs, targets, indices):
         # tuple of index of all src with one-to-one map to target: sum(labels_of_images_in_batch)
         idx = self._get_src_permutation_idx(indices)
-        # [batch_size, num_queries, num_classes +_1]
+        # [batch_size, num_queries, num_classes + 1]
         src_logits = outputs["pred_logits"]
-        src_classes = src_logits[idx]
         # total labels in a batch
         tgt_label = torch.cat([t["labels"][i] for t, (_, i) in zip(targets, indices)])
         tgt_classes = torch.full(
             src_logits.shape[:2],
             self.num_classes,
             dtype=torch.int64,
-            device=src_classes.device,
+            device=src_logits.device,
         )
         # [batch_size]
         tgt_classes[idx] = tgt_label
 
         ce_loss = F.cross_entropy(
-            src_logits.transpose(1, 2), tgt_classes, self.cross_entropy_weight
+            src_logits.transpose(1, 2),
+            tgt_classes,
+            self.cross_entropy_weight,
         )
 
         loss = {"ce_loss": ce_loss}
@@ -303,19 +318,21 @@ class SetCriterion(nn.Module):
         idx = self._get_src_permutation_idx(indices)
         src_boxes = outputs["pred_boxes"][idx]
         tgt_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)])
+
         num_boxes = sum(len(t["labels"]) for t in targets)
         num_boxes = torch.as_tensor(
             [num_boxes], dtype=torch.float32, device=src_boxes.device
         )
 
         l1_loss = F.l1_loss(src_boxes, tgt_boxes, reduction="none")
-        l1_loss = sum(l1_loss) / num_boxes
+        l1_loss = l1_loss.sum() / num_boxes
 
-        giou_loss = torch.diag(
+        giou_loss = 1 - torch.diag(
             generalized_iou(
                 box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(tgt_boxes)
             )
         )
+        giou_loss = giou_loss.sum() / num_boxes
 
         loss = {
             "l1_loss": l1_loss,
