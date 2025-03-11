@@ -10,12 +10,13 @@ import random
 from PIL import Image
 from tqdm import tqdm
 from torch.utils.data import Dataset
+from config import SUPPORTED
 
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
 
-def read_train_data(root: str):
+def read_train_data_classification(root: str):
     random.seed(0)
     assert os.path.exists(root), "dataset root: {} does not exist.".format(root)
     category = [
@@ -33,14 +34,12 @@ def read_train_data(root: str):
     train_images_path = []
     train_images_label = []
 
-    supported = [".jpg", ".JPG", ".png", ".PNG"]
-
     for cls in category:
         cls_path = os.path.join(root, cls)
         images = [
             os.path.join(root, cls, i)
             for i in os.listdir(cls_path)
-            if os.path.splitext(i)[-1] in supported
+            if os.path.splitext(i)[-1] in SUPPORTED
         ]
 
         image_class = class_indices[cls]
@@ -54,7 +53,7 @@ def read_train_data(root: str):
     return train_images_path, train_images_label
 
 
-def read_val_data(root: str):
+def read_val_data_classification(root: str):
     random.seed(0)
     assert os.path.exists(root), "dataset root: {} does not exist.".format(root)
 
@@ -67,14 +66,12 @@ def read_val_data(root: str):
     val_images_path = []
     val_images_label = []
 
-    supported = [".jpg", ".JPG", ".png", ".PNG"]
-
     for cls in category:
         cls_path = os.path.join(root, cls)
         images = [
             os.path.join(root, cls, i)
             for i in os.listdir(cls_path)
-            if os.path.splitext(i)[-1] in supported
+            if os.path.splitext(i)[-1] in SUPPORTED
         ]
         image_class = class_indices[cls]
 
@@ -87,81 +84,70 @@ def read_val_data(root: str):
     return val_images_path, val_images_label
 
 
-def plot_data_loader_image(data_loader):
-    batch_size = data_loader.batch_size
-    plot_num = min(batch_size, 4)
+def read_train_data_detection(root: str):
+    random.seed(0)
+    assert os.path.exists(root), f"dataset root: {root} does not exist."
 
-    json_path = "./class_indices.json"
-    assert os.path.exists(json_path), json_path + " does not exist."
-    json_file = open(json_path, "r")
-    class_indices = json.load(json_file)
+    images_dir = os.path.join(root, "images", "train")
+    labels_dir = os.path.join(root, "labels", "train")
 
-    for data in data_loader:
-        images, labels = data
-        for i in range(plot_num):
-            # [C, H, W] -> [H, W, C]
-            img = images[i].numpy().transpose(1, 2, 0)
-            img = (img * [0.5, 0.5, 0.5] + [0.5, 0.5, 0.5]) * 255
-            label = labels[i].item()
-            plt.subplot(1, plot_num, i + 1)
-            plt.xlabel(class_indices[str(label)])
-            plt.xticks([])
-            plt.yticks([])
-            plt.imshow(img.astype("uint8"))
-        plt.show()
+    assert os.path.exists(images_dir), f"images directory: {images_dir} does not exist."
+    assert os.path.exists(labels_dir), f"labels directory: {labels_dir} does not exist."
 
+    train_images_path = []
+    train_labels_path = []
 
-def write_pickle(list_info: list, file_name: str):
-    with open(file_name, "wb") as f:
-        pickle.dump(list_info, f)
+    image_files = [
+        f for f in os.listdir(images_dir) if os.path.splitext(f)[-1] in SUPPORTED
+    ]
 
+    for img_file in image_files:
+        base_name = os.path.splitext(img_file)[0]
+        label_file = f"{base_name}.txt"
+        label_path = os.path.join(labels_dir, label_file)
 
-def read_pickle(file_name: str) -> list:
-    with open(file_name, "rb") as f:
-        info_list = pickle.load(f)
-        return info_list
+        if os.path.exists(label_path):
+            img_path = os.path.join(images_dir, img_file)
+            train_images_path.append(img_path)
+            train_labels_path.append(label_path)
+
+    print(f"{len(train_images_path)} images for training.")
+
+    return train_images_path, train_labels_path
 
 
-def train_one_epoch(model, optimizer, data_loader, device, epoch, lr_scheduler):
-    model.train()
-    loss_function = torch.nn.CrossEntropyLoss()
-    accu_loss = torch.zeros(1).to(device)
-    accu_num = torch.zeros(1).to(device)
-    optimizer.zero_grad()
+def read_val_data_detection(root: str):
+    random.seed(0)
+    assert os.path.exists(root), f"dataset root: {root} does not exist."
 
-    sample_num = 0
-    data_loader = tqdm(data_loader, file=sys.stdout)
-    for step, data in enumerate(data_loader):
-        images, labels = data
-        sample_num += images.shape[0]
+    images_dir = os.path.join(root, "images", "val")
+    labels_dir = os.path.join(root, "labels", "val")
 
-        pred = model(images.to(device))
-        pred_classes = torch.max(pred, dim=1)[1]
-        accu_num += torch.eq(pred_classes, labels.to(device)).sum()
+    assert os.path.exists(images_dir), f"images directory: {images_dir} does not exist."
+    assert os.path.exists(labels_dir), f"labels directory: {labels_dir} does not exist."
 
-        loss = loss_function(pred, labels.to(device))
-        loss.backward()
-        accu_loss += loss.detach()
+    val_images_path = []
+    val_labels_path = []
 
-        data_loader.desc = (
-            "[train epoch {}] loss: {:.3f}, acc: {:.3f}, lr: {:.5f}".format(
-                epoch,
-                accu_loss.item() / (step + 1),
-                accu_num.item() / sample_num,
-                optimizer.param_groups[0]["lr"],
-            )
-        )
+    image_files = [
+        f for f in os.listdir(images_dir) if os.path.splitext(f)[-1] in SUPPORTED
+    ]
 
-        if not torch.isfinite(loss):
-            print("WARNING: non-finite loss, ending training ", loss)
-            sys.exit(1)
+    for img_file in image_files:
+        # Get corresponding label file (same name but .txt extension)
+        base_name = os.path.splitext(img_file)[0]
+        label_file = f"{base_name}.txt"
+        label_path = os.path.join(labels_dir, label_file)
 
-        optimizer.step()
-        optimizer.zero_grad()
-        # update lr
-        lr_scheduler.step()
+        # Only include images that have corresponding label files
+        if os.path.exists(label_path):
+            img_path = os.path.join(images_dir, img_file)
+            val_images_path.append(img_path)
+            val_labels_path.append(label_path)
 
-    return accu_loss.item() / (step + 1), accu_num.item() / sample_num
+    print(f"{len(val_images_path)} images for validation.")
+
+    return val_images_path, val_labels_path
 
 
 class MyDataSet(Dataset):
@@ -193,86 +179,3 @@ class MyDataSet(Dataset):
         images = torch.stack(images, dim=0)
         labels = torch.as_tensor(labels)
         return images, labels
-
-
-@torch.no_grad()
-def evaluate(model, data_loader, device, epoch):
-    loss_function = torch.nn.CrossEntropyLoss()
-
-    model.eval()
-
-    accu_num = torch.zeros(1).to(device)
-    accu_loss = torch.zeros(1).to(device)
-
-    sample_num = 0
-    data_loader = tqdm(data_loader, file=sys.stdout)
-    for step, data in enumerate(data_loader):
-        images, labels = data
-        sample_num += images.shape[0]
-
-        pred = model(images.to(device))
-        pred_classes = torch.max(pred, dim=1)[1]
-        accu_num += torch.eq(pred_classes, labels.to(device)).sum()
-
-        loss = loss_function(pred, labels.to(device))
-        accu_loss += loss
-
-        data_loader.desc = "[valid epoch {}] loss: {:.3f}, acc: {:.3f}".format(
-            epoch, accu_loss.item() / (step + 1), accu_num.item() / sample_num
-        )
-
-    return accu_loss.item() / (step + 1), accu_num.item() / sample_num
-
-
-def create_lr_scheduler(
-    optimizer,
-    num_step: int,
-    epochs: int,
-    warmup=True,
-    warmup_epochs=1,
-    warmup_factor=1e-3,
-    end_factor=1e-2,
-):
-    assert num_step > 0 and epochs > 0
-    if warmup is False:
-        warmup_epochs = 0
-
-    def f(x):
-        if warmup is True and x <= (warmup_epochs * num_step):
-            alpha = float(x) / (warmup_epochs * num_step)
-            return warmup_factor * (1 - alpha) + alpha
-        else:
-            current_step = x - warmup_epochs * num_step
-            cosine_steps = (epochs - warmup_epochs) * num_step
-            return ((1 + math.cos(current_step * math.pi / cosine_steps)) / 2) * (
-                1 - end_factor
-            ) + end_factor
-
-    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=f)
-
-
-def get_params_groups(model: torch.nn.Module, weight_decay: float = 1e-5):
-    parameter_group_vars = {
-        "decay": {"params": [], "weight_decay": weight_decay},
-        "no_decay": {"params": [], "weight_decay": 0.0},
-    }
-
-    parameter_group_names = {
-        "decay": {"params": [], "weight_decay": weight_decay},
-        "no_decay": {"params": [], "weight_decay": 0.0},
-    }
-
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue  # frozen weights
-
-        if len(param.shape) == 1 or name.endswith(".bias"):
-            group_name = "no_decay"
-        else:
-            group_name = "decay"
-
-        parameter_group_vars[group_name]["params"].append(param)
-        parameter_group_names[group_name]["params"].append(name)
-
-    # print("Param groups = %s" % json.dumps(parameter_group_names, indent=2))
-    return list(parameter_group_vars.values())
