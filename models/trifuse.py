@@ -7,7 +7,6 @@ from torchvision.models.detection.anchor_utils import AnchorGenerator
 import numpy as np
 from typing import Optional
 
-from config import *
 from models.detr import DETR
 from models.retina import Retina
 
@@ -121,11 +120,11 @@ class DropPath(nn.Module):
         return drop_path_f(x, self.drop_prob, self.training)
 
 
-class main_model(nn.Module):
+class TriFuse(nn.Module):
     def __init__(
         self,
         num_classes,
-        fuse_fm=True,
+        head="detr",
         patch_size=4,
         in_chans=3,
         embed_dim=96,
@@ -143,10 +142,13 @@ class main_model(nn.Module):
         conv_depths=(2, 2, 2, 2),
         conv_dims=(96, 192, 384, 768),
         conv_drop_path_rate=0.0,
-        conv_head_init_scale: float = 1.0,
         **kwargs,
     ):
         super().__init__()
+
+        ###### Head Setting #######
+
+        self.head = head
 
         ###### Local Branch Setting #######
 
@@ -303,7 +305,7 @@ class main_model(nn.Module):
         self.p3 = FPN_Block(in_channels=192, out_channels=96)
         self.p2 = FPN_Block(in_channels=96, out_channels=96)
 
-        ###### Retina Detection Head Setting ######
+        ###### Detection Head Setting ######
 
         self.num_anchors = 9
 
@@ -311,20 +313,21 @@ class main_model(nn.Module):
             sizes=((32,), (64,), (128,), (256,)), aspect_ratios=((0.5, 1.0, 2.0),) * 4
         )
 
-        self.retina_head = Retina(
+        retina_head = Retina(
+            in_channels=embed_dim * 4,
             num_classes=self.num_classes,
-            fuse_fm=fuse_fm,
-            in_channels_list=[96, 192, 384, 768],
             num_anchors=self.num_anchors,
             out_channels=192,
         )
 
-        self.detr_head = DETR(
+        detr_head = DETR(
             in_channels=embed_dim * 4,
             num_classes=1,
             num_queries=100,
             hidden_dim=256,
         )
+
+        self.head = retina_head if head == "retina" else detr_head
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -408,7 +411,7 @@ class main_model(nn.Module):
 
         x_f = torch.cat([x_4, x_3, x_2, x_1], dim=1)
 
-        return self.detr_head(x_f)
+        return self.head(x_f)
 
         # return self.retina_head([x_p_1, x_p_2, x_p_3, x_p_4])
 
@@ -1143,33 +1146,3 @@ class PatchMerging(nn.Module):
         x = self.reduction(x)  # [B, H/2*W/2, 2*C]
 
         return x
-
-
-def HiFuse_Tiny(num_classes: int, fuse_fm: bool):
-    model = main_model(
-        depths=(2, 2, 2, 2),
-        conv_depths=(2, 2, 2, 2),
-        num_classes=num_classes,
-        fuse_fm=fuse_fm,
-    )
-    return model
-
-
-def HiFuse_Small(num_classes: int, fuse_fm: bool):
-    model = main_model(
-        depths=(2, 2, 6, 2),
-        conv_depths=(2, 2, 6, 2),
-        num_classes=num_classes,
-        fuse_fm=fuse_fm,
-    )
-    return model
-
-
-def HiFuse_Base(num_classes: int, fuse_fm: bool):
-    model = main_model(
-        depths=(2, 2, 18, 2),
-        conv_depths=(2, 2, 18, 2),
-        num_classes=num_classes,
-        fuse_fm=fuse_fm,
-    )
-    return model
