@@ -5,14 +5,9 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from utils.data import MyDataSet
-from utils.data import (
-    read_train_data,
-    read_val_data,
-    create_lr_scheduler,
-    get_params_groups,
-    train_one_epoch,
-    evaluate,
-)
+from utils.data import read_train_data_detection, read_val_data_detection
+from utils.build import create_lr_scheduler, get_params_groups
+from utils.engine import train_one_epoch, evaluate
 
 
 def main(args):
@@ -26,14 +21,16 @@ def main(args):
 
     tb_writer = SummaryWriter()
 
-    train_images_path, train_images_label = read_train_data(args.train_data_path)
-    val_images_path, val_images_label = read_val_data(args.val_data_path)
+    train_images_path, train_images_label = read_train_data_detection(
+        args.train_data_path
+    )
+    val_images_path, val_images_label = read_val_data_detection(args.val_data_path)
 
     img_size = 224
     data_transform = {
         "train": transforms.Compose(
             [
-                transforms.RandomResizedCrop(img_size),
+                transforms.Resize(img_size),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
@@ -42,7 +39,6 @@ def main(args):
         "val": transforms.Compose(
             [
                 transforms.Resize(256),
-                transforms.CenterCrop(img_size),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
             ]
