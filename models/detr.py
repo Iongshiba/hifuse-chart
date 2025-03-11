@@ -119,21 +119,29 @@ class DETR(nn.Module):
         target = torch.zeros_like(query_embed)
         output = self.decoder(target, memory, pos_embed, query_embed)
 
-        out_class = self.class_embed(output)
-        out_bbox = self.bbox_embed(output)
+        # [num_queries, batch_size, hidden_dim]
+        # print(output.shape)
 
-        import cv2 as cv
+        # [batch_size, num_queries, num_classes + 1]
+        # [batch_size, num_queries, 4]
+        out_class = self.class_embed(output).permute(1, 0, 2)
+        out_bbox = self.bbox_embed(output).sigmoid().permute(1, 0, 2)
 
         targets = [
             {
                 "labels": torch.tensor([0]),
-                "boxes": torch.tensor([[0.471, 0.564, 0.130, 0.214]]),
+                "boxes": torch.tensor([[105.5, 126, 29, 48]]),
             }
         ]
+        outputs = {
+            "pred_logits": out_class,
+            "pred_boxes": out_bbox,
+        }
 
-        criterion = HungarianMatcher()
+        criterion = SetCriterion(1)
+        loss = criterion(outputs, targets)
 
-        return criterion({"pred_logits": out_class, "pred_boxes": out_bbox}, targets)
+        return loss
         # return output
 
 
@@ -258,14 +266,89 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class SetCriterion(nn.Module):
-    def __init__():
+    def __init__(self, num_classes, non_object_coeff=0.1):
         super().__init__()
+        self.matcher = HungarianMatcher()
+        self.num_classes = num_classes
+        cross_entropy_weight = torch.ones(num_classes + 1)
+        cross_entropy_weight[-1] = non_object_coeff
+        self.register_buffer("cross_entropy_weight", cross_entropy_weight)
+
+    def loss_labels(self, outputs, targets, indices):
+        # tuple of index of all src with one-to-one map to target: sum(labels_of_images_in_batch)
+        idx = self._get_src_permutation_idx(indices)
+        # [batch_size, num_queries, num_classes +_1]
+        src_logits = outputs["pred_logits"]
+        src_classes = src_logits[idx]
+        # total labels in a batch
+        tgt_label = torch.cat([t["labels"][i] for t, (_, i) in zip(targets, indices)])
+        tgt_classes = torch.full(
+            src_logits.shape[:2],
+            self.num_classes,
+            dtype=torch.int64,
+            device=src_classes.device,
+        )
+        # [batch_size]
+        tgt_classes[idx] = tgt_label
+
+        ce_loss = F.cross_entropy(
+            src_logits.transpose(1, 2), tgt_classes, self.cross_entropy_weight
+        )
+
+        loss = {"ce_loss": ce_loss}
+
+        return loss
 
     def loss_boxes(self, outputs, targets, indices):
-        pass
+        idx = self._get_src_permutation_idx(indices)
+        src_boxes = outputs["pred_boxes"][idx]
+        tgt_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)])
+        num_boxes = sum(len(t["labels"]) for t in targets)
+        num_boxes = torch.as_tensor(
+            [num_boxes], dtype=torch.float32, device=src_boxes.device
+        )
 
-    def forward(self):
-        pass
+        l1_loss = F.l1_loss(src_boxes, tgt_boxes, reduction="none")
+        l1_loss = sum(l1_loss) / num_boxes
+
+        giou_loss = torch.diag(
+            generalized_iou(
+                box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(tgt_boxes)
+            )
+        )
+
+        loss = {
+            "l1_loss": l1_loss,
+            "giou_loss": giou_loss,
+        }
+
+        return loss
+
+    def _get_src_permutation_idx(self, indices):
+        batch_idx = torch.cat(
+            [torch.full_like(src, i) for i, (src, _) in enumerate(indices)]
+        )
+        # number of labels in an image
+        src_idx = torch.cat([src for (src, _) in indices])
+
+        return batch_idx, src_idx
+
+    def _get_tgt_permutation_idx(indices):
+        batch_idx = torch.cat(
+            [torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)]
+        )
+        src_idx = torch.cat([tgt for (_, tgt) in indices])
+
+        return batch_idx, src_idx
+
+    def forward(self, outputs, targets):
+        indices = self.matcher(outputs, targets)
+
+        loss = {}
+        loss.update(self.loss_boxes(outputs, targets, indices))
+        loss.update(self.loss_labels(outputs, targets, indices))
+
+        return loss
 
 
 class HungarianMatcher(nn.Module):
@@ -301,7 +384,7 @@ class HungarianMatcher(nn.Module):
         # In the matching cost, we use probabilities instead of log-probabilities.
         # This makes the class prediction term commensurable (same standard) to box loss, and we observed better empirical performances.
         class_cost = -out_prob[:, tgt_ids]
-        bbox_cost = generalized_iou(
+        bbox_cost = -generalized_iou(
             box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
         )
         l1_cost = torch.cdist(out_bbox, tgt_bbox, p=1)
@@ -312,7 +395,7 @@ class HungarianMatcher(nn.Module):
             + self.bbox_weight * bbox_cost
             + self.l1_weight * l1_cost
         )
-        cost = cost.view(B, N, -1).cpu()
+        cost = cost.view(B, N, -1).detach().cpu()
 
         # len(tgt_bbox_per_img) = batch_sizae
         tgt_bbox_per_img = [len(v["labels"]) for v in targets]
@@ -322,6 +405,7 @@ class HungarianMatcher(nn.Module):
             for i, c in enumerate(cost.split(tgt_bbox_per_img, -1))
         ]
 
+        # convert to torch.tensor before returning
         return [
             (
                 torch.as_tensor(i, dtype=torch.int64),
@@ -329,11 +413,6 @@ class HungarianMatcher(nn.Module):
             )
             for i, j in indices
         ]
-
-
-class SetCriterion(nn.Module):
-    def __init__(self):
-        super().__init__()
 
 
 if __name__ == "__main__":
