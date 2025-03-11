@@ -1,10 +1,12 @@
 import os
 import argparse
 import torch
+
 import torch.optim as optim
+
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
-from utils.data import MyDataSet
+from data.doclaynet import YOLODataset
 from utils.data import read_train_data_detection, read_val_data_detection
 from utils.build import create_lr_scheduler, get_params_groups
 from utils.engine import train_one_epoch, evaluate
@@ -45,13 +47,13 @@ def main(args):
         ),
     }
 
-    train_dataset = MyDataSet(
+    train_dataset = YOLODataset(
         images_path=train_images_path,
         images_class=train_images_label,
         transform=data_transform["train"],
     )
 
-    val_dataset = MyDataSet(
+    val_dataset = YOLODataset(
         images_path=val_images_path,
         images_class=val_images_label,
         transform=data_transform["val"],
