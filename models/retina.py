@@ -30,9 +30,9 @@ class Retina(nn.Module):
 
     def __init__(
         self,
+        in_channels: int,
         num_classes: int,
         fuse_fm: bool = True,
-        in_channels_list: list[int] = [96, 96, 96, 96],
         num_anchors: int = 9,
         out_channels: int = 192,
     ):
