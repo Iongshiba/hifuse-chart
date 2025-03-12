@@ -26,11 +26,20 @@ class FPN_Block(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
 
-        self.upsample = nn.Upsample(
-            scale_factor=2, mode="bilinear", align_corners=False
+        self.upsample = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+                bias=False,
+            ),
         )
         self.pwconv = nn.Conv2d(
-            in_channels=in_channels, out_channels=out_channels, kernel_size=1
+            in_channels=out_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            bias=False,
         )
         # self.norm = nn.BatchNorm2d(out_channels) # An's Note: Try training without normalization first, then try BatchNorm and GroupNorm to see if there is any improvement
         # self.act = nn.ReLU(inplace=True)
@@ -124,7 +133,9 @@ class TriFuse(nn.Module):
     def __init__(
         self,
         num_classes,
+        fuse_fm=True,
         head="detr",
+        num_anchors=9,
         patch_size=4,
         in_chans=3,
         embed_dim=96,
@@ -300,34 +311,40 @@ class TriFuse(nn.Module):
 
         ###### Feature Pyramid Network Setting ######
 
-        self.ppm = PyramidPoolingModule(in_channels=768, out_channels=96)
-        self.p4 = FPN_Block(in_channels=384, out_channels=96)
-        self.p3 = FPN_Block(in_channels=192, out_channels=96)
-        self.p2 = FPN_Block(in_channels=96, out_channels=96)
+        self.ppm = PyramidPoolingModule(in_channels=768, out_channels=768)
+        self.p4 = FPN_Block(in_channels=768, out_channels=384)
+        self.p3 = FPN_Block(in_channels=384, out_channels=192)
+        self.p2 = FPN_Block(in_channels=192, out_channels=96)
 
         ###### Detection Head Setting ######
 
-        self.num_anchors = 9
+        self.num_anchors = num_anchors
 
         self.anchor_generator = AnchorGenerator(
             sizes=((32,), (64,), (128,), (256,)), aspect_ratios=((0.5, 1.0, 2.0),) * 4
         )
 
-        retina_head = Retina(
-            in_channels=embed_dim * 4,
-            num_classes=self.num_classes,
-            num_anchors=self.num_anchors,
-            out_channels=192,
-        )
-
-        detr_head = DETR(
-            in_channels=embed_dim * 4,
-            num_classes=1,
-            num_queries=100,
-            hidden_dim=256,
-        )
-
-        self.head = retina_head if head == "retina" else detr_head
+        if head == "retina":
+            head = Retina(
+                num_classes=self.num_classes,
+                in_channels_list=[96, 192, 384, 768],
+                fuse_fm=fuse_fm,
+                num_fm=4,
+                num_anchors=self.num_anchors,
+                out_channels=192,
+            )
+        elif head == "detr":
+            head = DETR(
+                in_channels=embed_dim * 4,
+                num_classes=1,
+                num_queries=100,
+                hidden_dim=256,
+            )
+        else:
+            raise ValueError(
+                "Wrong head selection, only 2 options allowed: 'retina' | 'detr'"
+            )
+        self.head = head
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -362,6 +379,7 @@ class TriFuse(nn.Module):
         x_s_4 = torch.transpose(x_s_4, 1, 2)
         x_s_4 = x_s_4.view(x_s_4.shape[0], -1, 7, 7)
 
+        # print("Global Branch")
         # print(x_s_1.shape)
         # print(x_s_2.shape)
         # print(x_s_3.shape)
@@ -377,6 +395,7 @@ class TriFuse(nn.Module):
         x_c = self.downsample_layers[3](x_c_3)
         x_c_4 = self.stages[3](x_c)
 
+        # print("Local Branch")
         # print(x_c_1.shape)
         # print(x_c_2.shape)
         # print(x_c_3.shape)
@@ -388,6 +407,7 @@ class TriFuse(nn.Module):
         x_f_3 = self.fu3(x_c_3, x_s_3, x_f_2)
         x_f_4 = self.fu4(x_c_4, x_s_4, x_f_3)
 
+        # print("Hierachical Feature Fusion")
         # print(x_f_1.shape)
         # print(x_f_2.shape)
         # print(x_f_3.shape)
@@ -395,13 +415,20 @@ class TriFuse(nn.Module):
 
         ###### Feature Pyramid Network ######
         # [1, 96, 56, 56]
-        # [1, 96, 28, 28]
-        # [1, 96, 14, 14]
-        # [1, 96, 7, 7]
+        # [1, 192, 28, 28]
+        # [1, 384, 14, 14]
+        # [1, 768, 7, 7]
+
         x_p_4 = self.ppm(x_f_4)
         x_p_3 = self.p4(x_p_4, x_f_3)
         x_p_2 = self.p3(x_p_3, x_f_2)
         x_p_1 = self.p2(x_p_2, x_f_1)
+
+        # print("Feature Pyramid Network")
+        # print(x_p_1.shape)
+        # print(x_p_2.shape)
+        # print(x_p_3.shape)
+        # print(x_p_4.shape)
 
         ###### Feature Fusion ######
         x_4 = F.interpolate(x_p_4, scale_factor=8, mode="bilinear", align_corners=False)
@@ -409,11 +436,11 @@ class TriFuse(nn.Module):
         x_2 = F.interpolate(x_p_2, scale_factor=2, mode="bilinear", align_corners=False)
         x_1 = x_p_1
 
-        x_f = torch.cat([x_4, x_3, x_2, x_1], dim=1)
+        # x_f = torch.cat([x_4, x_3, x_2, x_1], dim=1)
 
-        return self.head(x_f)
+        # return self.head(x_f)
 
-        # return self.retina_head([x_p_1, x_p_2, x_p_3, x_p_4])
+        return self.head([x_1, x_2, x_3, x_4])
 
 
 ##### Local Feature Block Component #####
@@ -806,9 +833,9 @@ class Global_block(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.shift_size = shift_size
-        assert (
-            0 <= self.shift_size < self.window_size
-        ), "shift_size must in 0-window_size"
+        assert 0 <= self.shift_size < self.window_size, (
+            "shift_size must in 0-window_size"
+        )
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
