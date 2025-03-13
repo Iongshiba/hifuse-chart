@@ -7,8 +7,13 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from data.doclaynet import YOLODataset
-from utils.data import read_train_data_detection, read_val_data_detection
-from utils.build import create_lr_scheduler, get_params_groups
+from utils.data import read_data_detection
+from utils.build import (
+    create_lr_scheduler,
+    get_params_groups,
+    create_criterion,
+    TriFuse_Tiny,
+)
 from utils.engine import train_one_epoch, evaluate
 
 
@@ -23,10 +28,9 @@ def main(args):
 
     tb_writer = SummaryWriter()
 
-    train_images_path, train_images_label = read_train_data_detection(
-        args.train_data_path
+    train_images_path, train_images_label, val_images_path, val_images_label = (
+        read_data_detection(args.root_data_path)
     )
-    val_images_path, val_images_label = read_val_data_detection(args.val_data_path)
 
     img_size = 224
     data_transform = {
@@ -40,7 +44,7 @@ def main(args):
         ),
         "val": transforms.Compose(
             [
-                transforms.Resize(256),
+                transforms.Resize(img_size),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
             ]
@@ -49,13 +53,13 @@ def main(args):
 
     train_dataset = YOLODataset(
         images_path=train_images_path,
-        images_class=train_images_label,
+        labels_path=train_images_label,
         transform=data_transform["train"],
     )
 
     val_dataset = YOLODataset(
         images_path=val_images_path,
-        images_class=val_images_label,
+        labels_path=val_images_label,
         transform=data_transform["val"],
     )
 
@@ -64,13 +68,13 @@ def main(args):
         [os.cpu_count(), batch_size if batch_size > 1 else 0, 8]
     )  # number of workers
     print("Using {} dataloader workers every process".format(nw))
+
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         pin_memory=True,
         num_workers=nw,
-        collate_fn=train_dataset.collate_fn,
     )
 
     val_loader = torch.utils.data.DataLoader(
@@ -79,10 +83,10 @@ def main(args):
         shuffle=False,
         pin_memory=True,
         num_workers=nw,
-        collate_fn=val_dataset.collate_fn,
     )
 
-    model = create_model(num_classes=args.num_classes).to(device)
+    model = TriFuse_Tiny(num_classes=args.num_classes).to(device)
+    criterion = create_criterion(num_classees=args.num_classes, head=args.head)
 
     if args.RESUME == False:
         if args.weights != "":
@@ -130,7 +134,8 @@ def main(args):
         train_loss, train_acc = train_one_epoch(
             model=model,
             optimizer=optimizer,
-            data_loader=train_loader,
+            dataloader=train_loader,
+            criterion=criterion,
             device=device,
             epoch=epoch,
             lr_scheduler=lr_scheduler,
@@ -138,7 +143,11 @@ def main(args):
 
         # validate
         val_loss, val_acc = evaluate(
-            model=model, data_loader=val_loader, device=device, epoch=epoch
+            model=model,
+            dataloader=val_loader,
+            criterion=criterion,
+            device=device,
+            epoch=epoch,
         )
 
         tags = ["train_loss", "train_acc", "val_loss", "val_acc", "learning_rate"]
@@ -179,13 +188,15 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_classes", type=int, default=7)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--head", type=str, default="detr")
+    parser.add_argument("--num_classes", type=int, default=1)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--wd", type=float, default=1e-2)
     parser.add_argument("--RESUME", type=bool, default=False)
 
+    parser.add_argument("--root_data_path", type=str, default="")
     parser.add_argument("--train_data_path", type=str, default="")
     parser.add_argument("--val_data_path", type=str, default="")
 

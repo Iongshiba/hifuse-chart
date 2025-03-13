@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from models.trifuse import TriFuse
+from models.detr import SetCriterion
 
 
 def TriFuse_Tiny(num_classes: int, head: str = "detr"):
@@ -37,6 +38,15 @@ def TriFuse_Base(num_classes: int, head: str = "detr"):
         head=head,
     )
     return model
+
+
+def create_criterion(num_classees: int, head: str = "detr", **kwarg):
+    criterion = None
+    if head == "detr":
+        criterion = SetCriterion(num_classes=num_classees)
+    elif head == "retina":
+        criterion = None
+    return criterion
 
 
 def create_lr_scheduler(

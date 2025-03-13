@@ -18,7 +18,11 @@ class YOLODataset(Dataset):
         if img.mode != "RGB":
             img = img.convert("RGB")
 
-        label = self._load_label(self.labels_path[item])
+        boxes = self._load_label(self.labels_path[item])
+        label = {
+            "labels": [box[0] for box in boxes],
+            "boxes": [box[1:5] for box in boxes],
+        }
 
         if self.transform is not None:
             img = self.transform(img)
@@ -41,11 +45,3 @@ class YOLODataset(Dataset):
             boxes.append([class_id, x_center, y_center, width, height])
 
         return torch.tensor(boxes)
-
-    @staticmethod
-    def collate_fn(batch):
-        images, labels = tuple(zip(*batch))
-
-        images = torch.stack(images, dim=0)
-        labels = torch.as_tensor(labels)
-        return images, labels

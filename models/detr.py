@@ -281,13 +281,18 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class SetCriterion(nn.Module):
-    def __init__(self, num_classes, weight_dict, non_object_coeff=0.1):
+    def __init__(
+        self,
+        num_classes,
+        weight_dict={"ce_loss": 1, "l1_loss": 5, "giou_loss": 2},
+        non_object_coeff=0.1,
+    ):
         super().__init__()
         self.matcher = HungarianMatcher()
         self.num_classes = num_classes
         cross_entropy_weight = torch.ones(num_classes + 1)
         cross_entropy_weight[-1] = non_object_coeff
-        self.register_buffer("weight_dict", weight_dict)
+        self.weight_dict = weight_dict
         self.register_buffer("cross_entropy_weight", cross_entropy_weight)
 
     def loss_labels(self, outputs, targets, indices):

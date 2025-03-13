@@ -4,36 +4,29 @@ import torch
 from tqdm import tqdm
 
 
-def train_one_epoch(model, optimizer, data_loader, device, epoch, lr_scheduler):
+def train_one_epoch(
+    model, optimizer, dataloader, criterion, device, epoch, lr_scheduler
+):
     model.train()
-    loss_function = torch.nn.CrossEntropyLoss()
     accu_loss = torch.zeros(1).to(device)
     accu_num = torch.zeros(1).to(device)
     optimizer.zero_grad()
 
     sample_num = 0
-    data_loader = tqdm(data_loader, file=sys.stdout)
-    for step, data in enumerate(data_loader):
+    dataloader = tqdm(dataloader, file=sys.stdout)
+    for step, data in enumerate(dataloader):
         images, labels = data
+        images = images.to(device)
         sample_num += images.shape[0]
 
-        pred = model(images.to(device))
-        pred_classes = torch.max(pred, dim=1)[1]
-        accu_num += torch.eq(pred_classes, labels.to(device)).sum()
+        preds = model(images)
+        losses = criterion(preds, labels)
+        loss = sum(losses.values())
 
-        loss = loss_function(pred, labels.to(device))
         loss.backward()
-        accu_loss += loss.detach()
+        accu_loss += loss
 
-        data_loader.desc = (
-            "[train epoch {}] loss: {:.3f}, acc: {:.3f}, lr: {:.5f}".format(
-                epoch,
-                accu_loss.item() / (step + 1),
-                accu_num.item() / sample_num,
-                optimizer.param_groups[0]["lr"],
-            )
-        )
-
+        dataloader.desc = f"[Train Epoch {epoch}]\tLoss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]["lr"]:.5f}"
         if not torch.isfinite(loss):
             print("WARNING: non-finite loss, ending training ", loss)
             sys.exit(1)
@@ -43,33 +36,28 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, lr_scheduler):
         # update lr
         lr_scheduler.step()
 
-    return accu_loss.item() / (step + 1), accu_num.item() / sample_num
+    return accu_loss.item() / (step + 1)
 
 
 @torch.no_grad()
-def evaluate(model, data_loader, device, epoch):
-    loss_function = torch.nn.CrossEntropyLoss()
-
+def evaluate(model, dataloader, criterion, device, epoch):
     model.eval()
-
     accu_num = torch.zeros(1).to(device)
     accu_loss = torch.zeros(1).to(device)
 
     sample_num = 0
-    data_loader = tqdm(data_loader, file=sys.stdout)
-    for step, data in enumerate(data_loader):
+    dataloader = tqdm(dataloader, file=sys.stdout)
+    for step, data in enumerate(dataloader):
         images, labels = data
+        images = images.to(device)
         sample_num += images.shape[0]
 
-        pred = model(images.to(device))
-        pred_classes = torch.max(pred, dim=1)[1]
-        accu_num += torch.eq(pred_classes, labels.to(device)).sum()
+        preds = model(images.to(device))
+        losses = criterion(preds, labels)
+        loss = sum(losses.values())
 
-        loss = loss_function(pred, labels.to(device))
         accu_loss += loss
 
-        data_loader.desc = "[valid epoch {}] loss: {:.3f}, acc: {:.3f}".format(
-            epoch, accu_loss.item() / (step + 1), accu_num.item() / sample_num
-        )
+        dataloader.desc = f"[Validate Epoch {epoch}]\tLoss: {loss.item():.3f}"
 
-    return accu_loss.item() / (step + 1), accu_num.item() / sample_num
+    return accu_loss.item() / (step + 1)

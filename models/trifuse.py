@@ -8,8 +8,7 @@ import numpy as np
 from typing import Optional
 
 from models.detr import DETR
-
-# from models.retina import Retina
+from models.retina import Retina
 
 
 ##### Feature Pyramid Network Component #####
@@ -677,7 +676,7 @@ class WindowAttention(nn.Module):
         self, dim, window_size, num_heads, qkv_bias=True, attn_drop=0.0, proj_drop=0.0
     ):
         super().__init__()
-        self.dim = dim
+        self.dim = dim  # embed_dim * 2 ** (i_layer)
         self.window_size = window_size  # [Mh, Mw]
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -860,6 +859,7 @@ class Global_block(nn.Module):
     def forward(self, x, attn_mask):
         # patch size
         H, W = self.H, self.W
+        # (1, 3136, 32)
         B, L, C = x.shape
         assert L == H * W, "input feature has wrong size"
 
@@ -888,13 +888,15 @@ class Global_block(nn.Module):
             attn_mask = None
 
         # partition windows
-        # Divide (1, 14, 14, 3) into (4, 7, 7, 3)
+        # windows size (7, 7)
+        # Divide (1, 56, 56, 32) into (64, 7, 7, 32)
         x_windows = window_partition(shifted_x, self.window_size)  # [nW*B, Mh, Mw, C]
         x_windows = x_windows.view(
             -1, self.window_size * self.window_size, C
         )  # [nW*B, Mh*Mw, C]
 
         # W-MSA/SW-MSA
+        # (64, 49, 32)
         attn_windows = self.attn(x_windows, mask=attn_mask)  # [nW*B, Mh*Mw, C]
 
         # merge windows
