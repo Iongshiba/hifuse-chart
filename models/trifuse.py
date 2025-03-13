@@ -8,7 +8,8 @@ import numpy as np
 from typing import Optional
 
 from models.detr import DETR
-from models.retina import Retina
+
+# from models.retina import Retina
 
 
 ##### Feature Pyramid Network Component #####
@@ -192,6 +193,7 @@ class TriFuse(nn.Module):
 
         ###### Global Branch Setting ######
 
+        self.patch_size = patch_size
         self.num_classes = num_classes
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
@@ -313,12 +315,12 @@ class TriFuse(nn.Module):
             sizes=((32,), (64,), (128,), (256,)), aspect_ratios=((0.5, 1.0, 2.0),) * 4
         )
 
-        retina_head = Retina(
-            in_channels=embed_dim * 4,
-            num_classes=self.num_classes,
-            num_anchors=self.num_anchors,
-            out_channels=192,
-        )
+        # retina_head = Retina(
+        #     in_channels=embed_dim * 4,
+        #     num_classes=self.num_classes,
+        #     num_anchors=self.num_anchors,
+        #     out_channels=192,
+        # )
 
         detr_head = DETR(
             in_channels=embed_dim * 4,
@@ -327,7 +329,7 @@ class TriFuse(nn.Module):
             hidden_dim=256,
         )
 
-        self.head = retina_head if head == "retina" else detr_head
+        self.head = detr_head
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -342,25 +344,28 @@ class TriFuse(nn.Module):
             nn.init.constant_(m.bias, 0)
 
     def forward(self, imgs):
-        # images (224, 224, 3)
+        # images (B, C, H, W)
 
         ######  Global Branch ######
-        x_s, H, W = self.patch_embed(imgs)
+        x_s, H_embed, W_embed = self.patch_embed(imgs)
         x_s = self.pos_drop(x_s)
-        x_s_1, H, W = self.layers1(x_s, H, W)
+        x_s_1, H, W = self.layers1(x_s, H_embed, W_embed)
         x_s_2, H, W = self.layers2(x_s_1, H, W)
         x_s_3, H, W = self.layers3(x_s_2, H, W)
         x_s_4, H, W = self.layers4(x_s_3, H, W)
 
         # [B,L,C] ---> [B,C,H,W]
+
         x_s_1 = torch.transpose(x_s_1, 1, 2)
-        x_s_1 = x_s_1.view(x_s_1.shape[0], -1, 56, 56)  # 56 because patch_size = 4
+        x_s_1 = x_s_1.view(
+            x_s_1.shape[0], -1, H_embed, W_embed
+        )  # 56 because patch_size = 4
         x_s_2 = torch.transpose(x_s_2, 1, 2)
-        x_s_2 = x_s_2.view(x_s_2.shape[0], -1, 28, 28)
+        x_s_2 = x_s_2.view(x_s_2.shape[0], -1, H_embed // 2, W_embed // 2)
         x_s_3 = torch.transpose(x_s_3, 1, 2)
-        x_s_3 = x_s_3.view(x_s_3.shape[0], -1, 14, 14)
+        x_s_3 = x_s_3.view(x_s_3.shape[0], -1, H_embed // 4, W_embed // 4)
         x_s_4 = torch.transpose(x_s_4, 1, 2)
-        x_s_4 = x_s_4.view(x_s_4.shape[0], -1, 7, 7)
+        x_s_4 = x_s_4.view(x_s_4.shape[0], -1, H_embed // 8, W_embed // 8)
 
         # print(x_s_1.shape)
         # print(x_s_2.shape)
