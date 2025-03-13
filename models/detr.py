@@ -14,8 +14,8 @@ class DETR(nn.Module):
         self,
         in_channels: int,
         num_classes: int,
-        num_queries: int,
-        hidden_dim: int,
+        num_queries: int = 100,
+        hidden_dim: int = 256,
         feedforward_dim: int = 2048,
         num_heads: int = 8,
         encoder_num: int = 6,
@@ -100,6 +100,7 @@ class DETR(nn.Module):
         return pos
 
     def forward(self, x):
+        x = torch.cat(x, dim=1)
         B, C, H, W = x.shape
 
         # [B, in_c * 4, H, W] -> [B, hidden_dim, H, W]
@@ -280,12 +281,18 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class SetCriterion(nn.Module):
-    def __init__(self, num_classes, non_object_coeff=0.1):
+    def __init__(
+        self,
+        num_classes,
+        weight_dict={"ce_loss": 1, "l1_loss": 5, "giou_loss": 2},
+        non_object_coeff=0.1,
+    ):
         super().__init__()
         self.matcher = HungarianMatcher()
         self.num_classes = num_classes
         cross_entropy_weight = torch.ones(num_classes + 1)
         cross_entropy_weight[-1] = non_object_coeff
+        self.weight_dict = weight_dict
         self.register_buffer("cross_entropy_weight", cross_entropy_weight)
 
     def loss_labels(self, outputs, targets, indices):
@@ -310,7 +317,7 @@ class SetCriterion(nn.Module):
             self.cross_entropy_weight,
         )
 
-        loss = {"ce_loss": ce_loss}
+        loss = {"ce_loss": ce_loss * self.weight_dict["ce_coeff"]}
 
         return loss
 
@@ -335,8 +342,8 @@ class SetCriterion(nn.Module):
         giou_loss = giou_loss.sum() / num_boxes
 
         loss = {
-            "l1_loss": l1_loss,
-            "giou_loss": giou_loss,
+            "l1_loss": l1_loss * self.weight_dict["l1_coeff"],
+            "giou_loss": giou_loss * self.weight_dict["giou_coeff"],
         }
 
         return loss
@@ -364,6 +371,12 @@ class SetCriterion(nn.Module):
         loss = {}
         loss.update(self.loss_boxes(outputs, targets, indices))
         loss.update(self.loss_labels(outputs, targets, indices))
+
+        # loss = {
+        #     "l1_loss": (1),
+        #     "giou_loss": (1),
+        #     "ce_loss": (1),
+        # }
 
         return loss
 

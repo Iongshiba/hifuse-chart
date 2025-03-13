@@ -197,6 +197,7 @@ class TriFuse(nn.Module):
 
         ###### Global Branch Setting ######
 
+        self.patch_size = patch_size
         self.num_classes = num_classes
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
@@ -349,23 +350,25 @@ class TriFuse(nn.Module):
         # images (224, 224, 3)
 
         ######  Global Branch ######
-        x_s, H, W = self.patch_embed(imgs)
+        x_s, H_embed, W_embed = self.patch_embed(imgs)
         x_s = self.pos_drop(x_s)
-        # print("x_s:", x_s.shape)
-        x_s_1, H, W = self.layers1(x_s, H, W)
+        x_s_1, H, W = self.layers1(x_s, H_embed, W_embed)
         x_s_2, H, W = self.layers2(x_s_1, H, W)
         x_s_3, H, W = self.layers3(x_s_2, H, W)
         x_s_4, H, W = self.layers4(x_s_3, H, W)
 
         # [B,L,C] ---> [B,C,H,W]
+
         x_s_1 = torch.transpose(x_s_1, 1, 2)
-        x_s_1 = x_s_1.view(x_s_1.shape[0], -1, 56, 56)  # 56 because patch_size = 4
+        x_s_1 = x_s_1.view(
+            x_s_1.shape[0], -1, H_embed, W_embed
+        )  # 56 because patch_size = 4
         x_s_2 = torch.transpose(x_s_2, 1, 2)
-        x_s_2 = x_s_2.view(x_s_2.shape[0], -1, 28, 28)
+        x_s_2 = x_s_2.view(x_s_2.shape[0], -1, H_embed // 2, W_embed // 2)
         x_s_3 = torch.transpose(x_s_3, 1, 2)
-        x_s_3 = x_s_3.view(x_s_3.shape[0], -1, 14, 14)
+        x_s_3 = x_s_3.view(x_s_3.shape[0], -1, H_embed // 4, W_embed // 4)
         x_s_4 = torch.transpose(x_s_4, 1, 2)
-        x_s_4 = x_s_4.view(x_s_4.shape[0], -1, 7, 7)
+        x_s_4 = x_s_4.view(x_s_4.shape[0], -1, H_embed // 8, W_embed // 8)
 
         # print("Global Branch")
         # print(x_s_1.shape)
@@ -663,7 +666,7 @@ class WindowAttention(nn.Module):
         self, dim, window_size, num_heads, qkv_bias=True, attn_drop=0.0, proj_drop=0.0
     ):
         super().__init__()
-        self.dim = dim
+        self.dim = dim  # embed_dim * 2 ** (i_layer)
         self.window_size = window_size  # [Mh, Mw]
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -825,9 +828,9 @@ class Global_block(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.shift_size = shift_size
-        assert 0 <= self.shift_size < self.window_size, (
-            "shift_size must in 0-window_size"
-        )
+        assert (
+            0 <= self.shift_size < self.window_size
+        ), "shift_size must in 0-window_size"
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
@@ -847,6 +850,7 @@ class Global_block(nn.Module):
     def forward(self, x, attn_mask):
         # patch size
         H, W = self.H, self.W
+        # (1, 3136, 32)
         B, L, C = x.shape
         assert L == H * W, "input feature has wrong size"
 
@@ -875,13 +879,15 @@ class Global_block(nn.Module):
             attn_mask = None
 
         # partition windows
-        # Divide (1, 14, 14, 3) into (4, 7, 7, 3)
+        # windows size (7, 7)
+        # Divide (1, 56, 56, 32) into (64, 7, 7, 32)
         x_windows = window_partition(shifted_x, self.window_size)  # [nW*B, Mh, Mw, C]
         x_windows = x_windows.view(
             -1, self.window_size * self.window_size, C
         )  # [nW*B, Mh*Mw, C]
 
         # W-MSA/SW-MSA
+        # (64, 49, 32)
         attn_windows = self.attn(x_windows, mask=attn_mask)  # [nW*B, Mh*Mw, C]
 
         # merge windows

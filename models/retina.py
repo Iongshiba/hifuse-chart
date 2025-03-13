@@ -46,7 +46,7 @@ class Retina(nn.Module):
         self.channel_align = nn.ModuleList(
             [
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-                for in_channels in in_channels_list
+                for in_channels in []
             ]
         )
 
@@ -85,9 +85,9 @@ class Retina(nn.Module):
 
     def forward(self, feature_maps):
         # Assert if the `num_fm` matches with the actual length of `feature_maps`
-        assert len(feature_maps) == self.num_fm, (
-            "The number of feature maps differs from the `num_fm` attribute of the class"
-        )
+        assert (
+            len(feature_maps) == self.num_fm
+        ), "The number of feature maps differs from the `num_fm` attribute of the class"
 
         # Align feature maps to have `out_channels` channels
         feature_maps = [
