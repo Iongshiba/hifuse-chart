@@ -44,7 +44,7 @@ class Retina(nn.Module):
         self.channel_align = nn.ModuleList(
             [
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-                for in_channels in in_channels_list
+                for in_channels in []
             ]
         )
 
