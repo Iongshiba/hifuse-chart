@@ -23,20 +23,14 @@ class FPN_Block(nn.Module):
         out_channels (int): Number of output channels after applying 1x1 convolution.
     """
 
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(self, hff_in_channels: int, out_channels: int):
         super().__init__()
 
         self.upsample = nn.Sequential(
             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=1,
-                bias=False,
-            ),
         )
         self.pwconv = nn.Conv2d(
-            in_channels=out_channels,
+            in_channels=hff_in_channels,
             out_channels=out_channels,
             kernel_size=1,
             bias=False,
@@ -138,9 +132,9 @@ class TriFuse(nn.Module):
         num_anchors=9,
         patch_size=4,
         in_chans=3,
-        embed_dim=96,
+        embed_dim=32,
         depths=(2, 2, 2, 2),
-        num_heads=(3, 6, 12, 24),
+        num_heads=(4, 8, 16, 32),
         window_size=7,
         qkv_bias=True,
         drop_rate=0,
@@ -151,7 +145,7 @@ class TriFuse(nn.Module):
         use_checkpoint=False,
         HFF_dp=0.0,
         conv_depths=(2, 2, 2, 2),
-        conv_dims=(96, 192, 384, 768),
+        conv_dims=(32, 64, 128, 256),
         conv_drop_path_rate=0.0,
         **kwargs,
     ):
@@ -297,40 +291,33 @@ class TriFuse(nn.Module):
         ###### Hierachical Feature Fusion Block Setting #######
 
         self.fu1 = HFF_block(
-            ch_1=96, ch_2=96, r_2=16, ch_int=96, ch_out=96, drop_rate=HFF_dp
+            ch_1=32, ch_2=32, r_2=16, ch_int=32, ch_out=32, drop_rate=HFF_dp
         )
         self.fu2 = HFF_block(
-            ch_1=192, ch_2=192, r_2=16, ch_int=192, ch_out=192, drop_rate=HFF_dp
+            ch_1=64, ch_2=64, r_2=16, ch_int=64, ch_out=64, drop_rate=HFF_dp
         )
         self.fu3 = HFF_block(
-            ch_1=384, ch_2=384, r_2=16, ch_int=384, ch_out=384, drop_rate=HFF_dp
+            ch_1=128, ch_2=128, r_2=16, ch_int=128, ch_out=128, drop_rate=HFF_dp
         )
         self.fu4 = HFF_block(
-            ch_1=768, ch_2=768, r_2=16, ch_int=768, ch_out=768, drop_rate=HFF_dp
+            ch_1=256, ch_2=256, r_2=16, ch_int=256, ch_out=256, drop_rate=HFF_dp
         )
 
         ###### Feature Pyramid Network Setting ######
 
-        self.ppm = PyramidPoolingModule(in_channels=768, out_channels=768)
-        self.p4 = FPN_Block(in_channels=768, out_channels=384)
-        self.p3 = FPN_Block(in_channels=384, out_channels=192)
-        self.p2 = FPN_Block(in_channels=192, out_channels=96)
+        self.ppm = PyramidPoolingModule(in_channels=256, out_channels=256)
+        self.p4 = FPN_Block(hff_in_channels=128, out_channels=256)
+        self.p3 = FPN_Block(hff_in_channels=64, out_channels=256)
+        self.p2 = FPN_Block(hff_in_channels=32, out_channels=256)
 
         ###### Detection Head Setting ######
-
-        self.num_anchors = num_anchors
-
-        self.anchor_generator = AnchorGenerator(
-            sizes=((32,), (64,), (128,), (256,)), aspect_ratios=((0.5, 1.0, 2.0),) * 4
-        )
 
         if head == "retina":
             head = Retina(
                 num_classes=self.num_classes,
                 in_channels_list=[96, 192, 384, 768],
                 fuse_fm=fuse_fm,
-                num_fm=4,
-                num_anchors=self.num_anchors,
+                num_anchors=num_anchors,
                 out_channels=192,
             )
         elif head == "detr":
@@ -358,12 +345,13 @@ class TriFuse(nn.Module):
             nn.init.trunc_normal_(m.weight, std=0.2)
             nn.init.constant_(m.bias, 0)
 
-    def forward(self, imgs):
+    def forward(self, imgs, targets=None):
         # images (224, 224, 3)
 
         ######  Global Branch ######
         x_s, H, W = self.patch_embed(imgs)
         x_s = self.pos_drop(x_s)
+        # print("x_s:", x_s.shape)
         x_s_1, H, W = self.layers1(x_s, H, W)
         x_s_2, H, W = self.layers2(x_s_1, H, W)
         x_s_3, H, W = self.layers3(x_s_2, H, W)
@@ -440,7 +428,10 @@ class TriFuse(nn.Module):
 
         # return self.head(x_f)
 
-        return self.head([x_1, x_2, x_3, x_4])
+        if isinstance(self.head, Retina):
+            return self.head([x_1, x_2, x_3, x_4])
+        else:  # DETR
+            pass
 
 
 ##### Local Feature Block Component #####
@@ -745,6 +736,7 @@ class WindowAttention(nn.Module):
         """
         # [batch_size*num_windows, Mh*Mw, total_embed_dim]
         B_, N, C = x.shape
+        # print(x.shape)  # (64, 49, 32)
         # qkv(): -> [batch_size*num_windows, Mh*Mw, 3 * total_embed_dim]
         # reshape: -> [batch_size*num_windows, Mh*Mw, 3, num_heads, embed_dim_per_head]
         # permute: -> [3, batch_size*num_windows, num_heads, Mh*Mw, embed_dim_per_head]
@@ -1022,6 +1014,7 @@ class BasicLayer(nn.Module):
         return attn_mask
 
     def forward(self, x, H, W):
+        # print(x.shape, H, W)
         if self.downsample is not None:
             x = self.downsample(
                 x, H, W
@@ -1088,7 +1081,7 @@ class PatchEmbed(nn.Module):
     2D Image to Patch Embedding
     """
 
-    def __init__(self, patch_size=4, in_c=3, embed_dim=96, norm_layer=None):
+    def __init__(self, patch_size=4, in_c=3, embed_dim=32, norm_layer=None):
         super().__init__()
         patch_size = (patch_size, patch_size)
         self.patch_size = patch_size
