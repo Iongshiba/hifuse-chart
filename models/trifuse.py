@@ -151,10 +151,6 @@ class TriFuse(nn.Module):
     ):
         super().__init__()
 
-        ###### Head Setting #######
-
-        self.head = head
-
         ###### Local Branch Setting #######
 
         self.downsample_layers = nn.ModuleList()  # stem + 3 stage downsample
@@ -323,7 +319,7 @@ class TriFuse(nn.Module):
             )
         elif head == "detr":
             head = DETR(
-                in_channels=embed_dim * 4,
+                in_channels=embed_dim * 8 * 4,
                 num_classes=1,
                 num_queries=100,
                 hidden_dim=256,
@@ -346,7 +342,7 @@ class TriFuse(nn.Module):
             nn.init.trunc_normal_(m.weight, std=0.2)
             nn.init.constant_(m.bias, 0)
 
-    def forward(self, imgs, targets=None):
+    def forward(self, imgs):
         # images (224, 224, 3)
 
         ######  Global Branch ######
@@ -434,7 +430,7 @@ class TriFuse(nn.Module):
         if isinstance(self.head, Retina):
             return self.head([x_1, x_2, x_3, x_4])
         else:  # DETR
-            pass
+            return self.head([x_1, x_2, x_3, x_4])
 
 
 ##### Local Feature Block Component #####
