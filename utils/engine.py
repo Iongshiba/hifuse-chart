@@ -27,7 +27,7 @@ def train_one_epoch(
         loss.backward()
         accu_loss += loss
 
-        dataloader.desc = f"[Train Epoch {epoch}]\tLoss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]["lr"]:.5f}"
+        dataloader.desc = f"[Train Epoch {epoch}]\tLoss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]["lr"]:.6f}"
         if not torch.isfinite(loss):
             print("WARNING: non-finite loss, ending training ", loss)
             sys.exit(1)
