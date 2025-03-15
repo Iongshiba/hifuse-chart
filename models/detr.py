@@ -5,6 +5,7 @@ from torch import nn
 from torchvision.ops.misc import MLP
 from scipy.optimize import linear_sum_assignment
 from utils.misc import get_clones, box_cxcywh_to_xyxy, generalized_iou
+import itertools
 
 import torch.nn.functional as F
 
@@ -74,7 +75,7 @@ class DETR(nn.Module):
 
         y_embed = torch.arange(1, H + 1, dtype=torch.float32, device=x.device)
         x_embed = torch.arange(1, W + 1, dtype=torch.float32, device=x.device)
-        x_pos, y_pos = torch.meshgrid(y_embed, x_embed)
+        x_pos, y_pos = torch.meshgrid(y_embed, x_embed, indexing="ij")
         x_pos = x_pos.repeat(B, 1, 1)
         y_pos = y_pos.repeat(B, 1, 1)
 
@@ -284,7 +285,7 @@ class SetCriterion(nn.Module):
     def __init__(
         self,
         num_classes,
-        weight_dict={"ce_loss": 1, "l1_loss": 5, "giou_loss": 2},
+        weight_dict={"ce_coeff": 1.0, "l1_coeff": 5.0, "giou_coeff": 2.0},
         non_object_coeff=0.1,
     ):
         super().__init__()
@@ -302,15 +303,24 @@ class SetCriterion(nn.Module):
         src_logits = outputs["pred_logits"]
         # total labels in a batch
         tgt_label = torch.cat([t["labels"][i] for t, (_, i) in zip(targets, indices)])
+        # create [batch_size, num_queries]
         tgt_classes = torch.full(
             src_logits.shape[:2],
             self.num_classes,
             dtype=torch.int64,
             device=src_logits.device,
         )
-        # [batch_size]
         tgt_classes[idx] = tgt_label
 
+        # cross entropy between (batch_size, num_classes + 1, num_queries) and (batch_size, num_queries), where:
+        # - First one contains the predicted logits for all classes.
+        # - Second one contains classes
+        # For example one batch, and 2 classes + 1 non object class:
+        # [0.23, 0.15, 0.231, 0.25, ...] len = 100
+        # [0.23, 0.15, 0.231, 0.25, ...] len = 100
+        # [0.23, 0.15, 0.231, 0.25, ...] len = 100
+        # [0,    1,    2,     0,    ...] len = 100
+        # cross entropy is computed at each column.
         ce_loss = F.cross_entropy(
             src_logits.transpose(1, 2),
             tgt_classes,
@@ -322,13 +332,21 @@ class SetCriterion(nn.Module):
         return loss
 
     def loss_boxes(self, outputs, targets, indices):
+        # Non object mask: ignore computing loss for non object boundigng box
+        tgt_label = torch.cat([t["labels"][i] for t, (_, i) in zip(targets, indices)])
         idx = self._get_src_permutation_idx(indices)
-        src_boxes = outputs["pred_boxes"][idx]
-        tgt_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)])
+        mask = tgt_label != self.num_classes
 
-        num_boxes = sum(len(t["labels"]) for t in targets)
+        src_boxes = outputs["pred_boxes"][idx][mask]
+        tgt_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)])[
+            mask
+        ]
+        print(mask)
+
+        # For normalization across each batch
+        num_boxes = len(tgt_boxes) + 1e-6
         num_boxes = torch.as_tensor(
-            [num_boxes], dtype=torch.float32, device=src_boxes.device
+            num_boxes, dtype=torch.float32, device=src_boxes.device
         )
 
         l1_loss = F.l1_loss(src_boxes, tgt_boxes, reduction="none")
@@ -393,7 +411,7 @@ class HungarianMatcher(nn.Module):
     def forward(self, outputs, targets):
         B, N, _ = outputs["pred_logits"].shape
         # outputs: This is a dict that contains at least these entries:
-        #          "pred_logits": Tensor of dim [batch_size, num_queries, num_classes] with the classification logits
+        #          "pred_logits": Tensor of dim [batch_size, num_queries, num_classes + 1] with the classification logits
         #          "pred_boxes": Tensor of dim [batch_size, num_queries, 4] with the predicted box coordinates
 
         # targets: This is a list of targets (len(targets) = batch_size), where each target is a dict containing:
@@ -406,7 +424,7 @@ class HungarianMatcher(nn.Module):
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
         # num_classes = num_boxes in targets
-        # [batch_size, num_queries, num_classes] -> [batch_size * num_queries, num_classes]
+        # [batch_size, num_queries, num_classes + 1] -> [batch_size * num_queries, num_classes + 1]
         # [batch_size, num_queries, 4] -> [batch_size * num_queries, 4]
         out_prob = out_class.flatten(0, 1).softmax(-1)
         out_bbox = out_bbox.flatten(0, 1)
@@ -419,12 +437,14 @@ class HungarianMatcher(nn.Module):
         )
         l1_cost = torch.cdist(out_bbox, tgt_bbox, p=1)
 
-        # [batch_size * num_queries, total tgt_bbox in the batch]
+        # [batch_size * num_queries, total tgt_bbox in the batch]: compute and only take the cost along the diagonal of the matrix
         cost = (
             self.class_weight * class_cost
             + self.bbox_weight * bbox_cost
             + self.l1_weight * l1_cost
         )
+        # The [batch_size * num_queries, total tgt_bbox in the batch] is revert to original batch,
+        # with each element in the batch responsible for each image in the targets
         cost = cost.view(B, N, -1).detach().cpu()
 
         # len(tgt_bbox_per_img) = batch_sizae
