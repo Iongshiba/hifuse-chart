@@ -341,7 +341,6 @@ class SetCriterion(nn.Module):
         tgt_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)])[
             mask
         ]
-        print(mask)
 
         # For normalization across each batch
         num_boxes = len(tgt_boxes) + 1e-6
