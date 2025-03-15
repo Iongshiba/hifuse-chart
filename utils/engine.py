@@ -17,6 +17,7 @@ def train_one_epoch(
     for step, data in enumerate(dataloader):
         images, labels = data
         images = images.to(device)
+        labels = [{k: v.to(device) for k, v in t.items()} for t in labels]
         sample_num += images.shape[0]
 
         preds = model(images)
@@ -50,6 +51,7 @@ def evaluate(model, dataloader, criterion, device, epoch):
     for step, data in enumerate(dataloader):
         images, labels = data
         images = images.to(device)
+        labels = [{k: v.to(device) for k, v in t} for t in labels]
         sample_num += images.shape[0]
 
         preds = model(images.to(device))
