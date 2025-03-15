@@ -75,6 +75,7 @@ def main(args):
         shuffle=True,
         pin_memory=True,
         num_workers=nw,
+        collate_fn=train_dataset.collate_fn,
     )
 
     val_loader = torch.utils.data.DataLoader(
@@ -83,10 +84,13 @@ def main(args):
         shuffle=False,
         pin_memory=True,
         num_workers=nw,
+        collate_fn=val_dataset.collate_fn,
     )
 
     model = TriFuse_Tiny(num_classes=args.num_classes).to(device)
-    criterion = create_criterion(num_classees=args.num_classes, head=args.head)
+    criterion = create_criterion(num_classees=args.num_classes, head=args.head).to(
+        device
+    )
 
     if args.RESUME == False:
         if args.weights != "":
