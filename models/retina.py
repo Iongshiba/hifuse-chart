@@ -3,9 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
-from torchvision.models.detection.retinanet import RetinaNetHead
 from torchvision.ops.focal_loss import sigmoid_focal_loss
-import torchvision.ops as ops
 from torchvision.ops import batched_nms, boxes as box_ops
 import torchvision.models.detection._utils as det_utils
 from torchvision.models.detection.retinanet import _sum, _box_loss
@@ -39,20 +37,21 @@ class Retina(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        in_channels_list: list[int] = [32, 64, 128, 256],
         out_channels: int = 256,
         fuse_fm: bool = True,
         num_fm: int = 4,
         num_anchors: int = 9,
         anchor_generator=None,
         proposal_matcher=None,
+        regression_loss_type=None,
     ):
         super().__init__()
 
         self.fuse_fm = fuse_fm
         self.num_fm = num_fm
+        self.num_classes = num_classes
         if proposal_matcher is None:
-            proposal_matcher = self._default_proposal_matcher(0.5, 0.4, True)
+            proposal_matcher = self._default_proposal_matcher(0.5, 0.3, True)
         self.proposal_matcher = proposal_matcher
         self.BETWEEN_THRESHHOLDS = det_utils.Matcher.BETWEEN_THRESHOLDS
         self.box_coder = det_utils.BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
@@ -61,6 +60,10 @@ class Retina(nn.Module):
             self.anchor_generator = anchor_generator
         else:
             self.anchor_generator = self._default_anchor_gen()
+
+        if regression_loss_type is None:
+            regression_loss_type = "smooth_l1"
+        self.reg_loss_type = regression_loss_type
 
         # Classification branch
         self.cls_subnet = nn.Sequential(
@@ -115,22 +118,33 @@ class Retina(nn.Module):
             ]
 
             # Concatenate along channel dimension (b, c, h, w)
-            fused_feature = torch.cat(upsampled_maps, dim=1)
-            fused_feature = self.fuse(fused_feature)
+            feature_maps = torch.cat(upsampled_maps, dim=1)
+            feature_maps = [self.fuse(feature_maps)]
 
-            cls_logits = [self.cls_logits(self.cls_subnet(fused_feature))]
-            reg_logits = [self.bbox_reg(self.reg_subnet(fused_feature))]
+        cls_logits = []
+        reg_logits = []
 
-        else:  # No fuse, keep each feature map separate
-            cls_logits = []
-            reg_logits = []
+        for feature in feature_maps:
+            cls_out = self.cls_logits(self.cls_subnet(feature))
+            reg_out = self.bbox_reg(self.reg_subnet(feature))
 
-            for feature in feature_maps:
-                cls_out = self.cls_logits(self.cls_subnet(feature))
-                reg_out = self.bbox_reg(self.reg_subnet(feature))
+            # Permute classification output from (N, A * K, H, W) to (N, HWA, K).
+            N, _, H, W = cls_out.shape
+            cls_out = cls_out.view(N, -1, self.num_classes, H, W)
+            cls_out = cls_out.permute(0, 3, 4, 1, 2)
+            cls_out = cls_out.reshape(N, -1, self.num_classes)  # Size=(N, HWA, 4)
 
-                cls_logits.append(cls_out)
-                reg_logits.append(reg_out)
+            # Permute bbox regression output from (N, 4 * A, H, W) to (N, HWA, 4).
+            N, _, H, W = reg_out.shape
+            reg_out = reg_out.view(N, -1, 4, H, W)
+            reg_out = reg_out.permute(0, 3, 4, 1, 2)
+            reg_out = reg_out.reshape(N, -1, 4)  # Size=(N, HWA, 4)
+
+            cls_logits.append(cls_out)
+            reg_logits.append(reg_out)
+
+        cls_logits = torch.cat(cls_logits, dim=1)
+        reg_logits = torch.cat(reg_logits, dim=1)
 
         image_list = self._to_ImageList(images)
         anchors = self.anchor_generator(image_list, feature_maps)
@@ -151,7 +165,7 @@ class Retina(nn.Module):
         return ImageList(images, original_sizes)
 
     def _default_proposal_matcher(
-        self, fg_iou_thresh, bg_iou_thresh, allow_low_quality_matches=True
+        self, fg_iou_thresh, bg_iou_thresh, allow_low_quality_matches=False
     ):
         proposal_matcher = det_utils.Matcher(
             fg_iou_thresh,
@@ -195,6 +209,10 @@ class Retina(nn.Module):
         for targets_per_image, cls_logits_per_image, matched_idxs_per_image in zip(
             targets, cls_logits, matched_idxs
         ):
+            cls_logits_per_image = cls_logits_per_image.view(
+                cls_logits_per_image.shape[1], -1
+            ).T
+
             # determine only the foreground
             foreground_idxs_per_image = matched_idxs_per_image >= 0
             num_foreground = foreground_idxs_per_image.sum()
@@ -239,14 +257,15 @@ class Retina(nn.Module):
 
             # select only the foreground boxes
             matched_gt_boxes_per_image = targets_per_image["boxes"][
-                foreground_idxs_per_image, :
+                matched_idxs_per_image[foreground_idxs_per_image]
             ]
+            bbox_reg_per_image = bbox_reg_per_image[foreground_idxs_per_image, :]
             anchors_per_image = anchors_per_image[foreground_idxs_per_image, :]
 
             # compute the loss
             losses.append(
                 _box_loss(
-                    "l1",
+                    self.reg_loss_type,
                     self.box_coder,
                     anchors_per_image,
                     matched_gt_boxes_per_image,
@@ -314,5 +333,6 @@ class Retina(nn.Module):
             match_quality_matrix = box_ops.box_iou(
                 targets_per_image["boxes"], anchors_per_image
             )
+
             matched_idxs.append(self.proposal_matcher(match_quality_matrix))
         return matched_idxs
