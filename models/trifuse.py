@@ -315,7 +315,7 @@ class TriFuse(nn.Module):
                 in_channels_list=[32, 64, 128, 256],
                 fuse_fm=fuse_fm,
                 num_anchors=num_anchors,
-                out_channels=192,
+                out_channels=256,
             )
         elif head == "detr":
             head = DETR(
@@ -342,7 +342,7 @@ class TriFuse(nn.Module):
             nn.init.trunc_normal_(m.weight, std=0.2)
             nn.init.constant_(m.bias, 0)
 
-    def forward(self, imgs):
+    def forward(self, imgs, targets=None):
         # images (224, 224, 3)
 
         ######  Global Branch ######
@@ -428,7 +428,11 @@ class TriFuse(nn.Module):
         # return self.head(x_f)
 
         if isinstance(self.head, Retina):
-            return self.head([x_1, x_2, x_3, x_4])
+            if self.training:
+                assert targets is not None, "During training, targets must be provided!"
+                return self.head([x_1, x_2, x_3, x_4], imgs, targets)
+            else:
+                return self.head([x_1, x_2, x_3, x_4], imgs)
         else:  # DETR
             return self.head([x_1, x_2, x_3, x_4])
 
