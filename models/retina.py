@@ -1,6 +1,15 @@
+from inspect import ismemberdescriptor
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models.detection.anchor_utils import AnchorGenerator
+from torchvision.models.detection.retinanet import RetinaNetHead
+from torchvision.ops.focal_loss import sigmoid_focal_loss
+import torchvision.ops as ops
+from torchvision.ops import boxes as box_ops
+import torchvision.models.detection._utils as det_utils
+from torchvision.models.detection.retinanet import _sum, _box_loss()
 
 
 class Retina(nn.Module):
@@ -31,24 +40,27 @@ class Retina(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        in_channels_list: list[int] = [96, 192, 384, 768],
+        in_channels_list: list[int] = [32, 64, 128, 256],
+        out_channels: int = 256,
         fuse_fm: bool = True,
         num_fm: int = 4,
         num_anchors: int = 9,
-        out_channels: int = 192,
+        anchor_generator=None,
+        proposal_matcher=None,
     ):
         super().__init__()
 
         self.fuse_fm = fuse_fm
         self.num_fm = num_fm
+        if proposal_matcher is None:
+            proposal_matcher = self._default_proposal_matcher(0.4, 0.5, True)
+        self.proposal_matcher = proposal_matcher
+        self.BETWEEN_THRESHHOLDS = det_utils.Matcher.BETWEEN_THRESHOLDS
 
-        # 1x1 Convolutions to unify channels
-        self.channel_align = nn.ModuleList(
-            [
-                nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-                for in_channels in []
-            ]
-        )
+        if anchor_generator:
+            self.anchor_generator = anchor_generator
+        else:
+            self.anchor_generator = self._default_anchor_gen()
 
         # Classification branch
         self.cls_subnet = nn.Sequential(
@@ -85,17 +97,11 @@ class Retina(nn.Module):
 
     def forward(self, feature_maps):
         # Assert if the `num_fm` matches with the actual length of `feature_maps`
-        assert (
-            len(feature_maps) == self.num_fm
-        ), "The number of feature maps differs from the `num_fm` attribute of the class"
+        assert len(feature_maps) == self.num_fm, (
+            "The number of feature maps differs from the `num_fm` attribute of the class"
+        )
 
-        # Align feature maps to have `out_channels` channels
-        feature_maps = [
-            self.channel_align[i](feature) for i, feature in enumerate(feature_maps)
-        ]
-
-        # Fuse the feature maps to highest size (56x56x`out_channels`) and return 1 prediction
-        if self.fuse_fm:
+        if self.fuse_fm:  # Fuse feature maps into (56x56x`out_channels`)
             # Get the highest size (56x56)
             h, w = (
                 feature_maps[0].shape[2],
@@ -108,15 +114,14 @@ class Retina(nn.Module):
                 for fm in feature_maps
             ]
 
-            # Concatenate along channel dimension -> (b, c, h, w)
+            # Concatenate along channel dimension (b, c, h, w)
             fused_feature = torch.cat(upsampled_maps, dim=1)
-            print(fused_feature.shape)
             fused_feature = self.fuse(fused_feature)
 
             cls_preds = self.cls_logits(self.cls_subnet(fused_feature))
             reg_preds = self.bbox_reg(self.reg_subnet(fused_feature))
 
-        else:  # Don't fuse, return `num_fm` predictions
+        else:  # No fuse, keep each feature map separate
             cls_preds = []
             reg_preds = []
 
@@ -127,4 +132,139 @@ class Retina(nn.Module):
                 cls_preds.append(cls_out)
                 reg_preds.append(reg_out)
 
+        # If model training -> return total loss
+        if self.training:
+            pass
+
+        else:  # inference (return prediction dict of cls and bbox)
+            pass
+
         return cls_preds, reg_preds
+
+    def _default_proposal_matcher(
+        self, fg_iou_thresh, bg_iou_thresh, allow_low_quality_matches=True
+    ):
+        proposal_matcher = det_utils.Matcher(
+            fg_iou_thresh,
+            bg_iou_thresh,
+            allow_low_quality_matches,
+        )
+        return proposal_matcher
+
+    def _default_anchor_gen(self):
+        sizes = (
+            (16, 32, 64),  # P1 (56x56)
+            (32, 64, 128),  # P2 (28x28)
+            (64, 128, 192),  # P3 (14x14)
+            (128, 192, 224),  # P4 (7x7)
+        )
+
+        anchor_generator = AnchorGenerator(
+            sizes=sizes,
+            aspect_ratios=((0.5, 1.0, 2.0),) * 4,
+        )
+        return anchor_generator
+
+    def compute_loss(self, targets, cls_logits, bbox_reg, anchors):
+        matched_idxs = self.match_anchors(targets, anchors)
+
+        # Classification loss
+        cls_loss = self._cls_loss(targets, cls_logits, matched_idxs)
+
+        # BBox Regression loss
+        reg_loss = self._reg_loss(targets, bbox_reg, anchors, matched_idxs)
+
+        return {
+            "cls_loss": cls_loss,
+            "reg_loss": reg_loss,
+        }
+
+    # PyTorch RetinaNetClassificationHead compute_loss()
+    def _cls_loss(self, targets, cls_logits, matched_idxs):
+        losses = []
+
+        for targets_per_image, cls_logits_per_image, matched_idxs_per_image in zip(
+            targets, cls_logits, matched_idxs
+        ):
+            # determine only the foreground
+            foreground_idxs_per_image = matched_idxs_per_image >= 0
+            num_foreground = foreground_idxs_per_image.sum()
+
+            # create the target classification
+            gt_classes_target = torch.zeros_like(cls_logits_per_image)
+            gt_classes_target[
+                foreground_idxs_per_image,
+                targets_per_image["labels"][
+                    matched_idxs_per_image[foreground_idxs_per_image]
+                ],
+            ] = 1.0
+
+            # find indices for which anchors should be ignored
+            valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHHOLDS
+
+            # compute the class classification loss
+            losses.append(
+                sigmoid_focal_loss(
+                    cls_logits_per_image[valid_idxs_per_image],
+                    gt_classes_target[valid_idxs_per_image],
+                    reduction="sum",
+                )
+                / max(1, num_foreground)
+            )
+
+        return _sum(losses) / len(targets)
+
+    # PyTorch RetinaNetRegressionHead compute_loss()
+    def _reg_loss(self, targets, bbox_reg, anchors, matched_idxs):
+        losses = []
+
+        for (
+            targets_per_image,
+            bbox_reg_per_image,
+            anchors_per_image,
+            matched_idxs_per_image,
+        ) in zip(targets, bbox_reg, anchors, matched_idxs):
+            # determine only the forground indices, ignore the rest
+            foreground_idxs_per_image = torch.where(matched_idxs_per_image >= 0)[0]
+            num_foreground = foreground_idxs_per_image.numel()
+
+            # select only the foreground boxes
+            matched_gt_boxes_per_image = targets_per_image["boxes"][
+                foreground_idxs_per_image, :
+            ]
+            anchors_per_image = anchors_per_image[foreground_idxs_per_image, :]
+
+            # compute the loss
+            losses.append(
+                _box_loss(
+                    "l1",
+                    det_utils.BoxCoder(weights=(1.0, 1.0, 1.0, 1.0)),
+                    anchors_per_image,
+                    matched_gt_boxes_per_image,
+                    bbox_reg_per_image
+                )
+                / max(1, num_foreground)
+            )
+
+        return _sum(losses) / max(1,len(targets))
+
+    def match_anchors(self, targets, anchors):
+        matched_idxs = []
+        for anchors_per_image, targets_per_image in zip(anchors, targets):
+            # No ground truth check
+            if targets_per_image["boxes"].numel() == 0:
+                matched_idxs.append(
+                    torch.full(
+                        (anchors_per_image.size(0),),
+                        -1,
+                        dtype=torch.int64,
+                        device=anchors_per_image.device,
+                    )
+                )
+                continue
+
+            match_quality_matrix = box_ops.box_iou(
+                targets_per_image["boxes"], anchors_per_image
+            )
+            matched_idxs.append(self.proposal_matcher(match_quality_matrix))
+        return matched_idxs
