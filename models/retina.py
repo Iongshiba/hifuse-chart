@@ -52,7 +52,7 @@ class Retina(nn.Module):
         self.fuse_fm = fuse_fm
         self.num_fm = num_fm
         if proposal_matcher is None:
-            proposal_matcher = self._default_proposal_matcher(0.4, 0.5, True)
+            proposal_matcher = self._default_proposal_matcher(0.5, 0.4, True)
         self.proposal_matcher = proposal_matcher
         self.BETWEEN_THRESHHOLDS = det_utils.Matcher.BETWEEN_THRESHOLDS
         self.box_coder = det_utils.BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
