@@ -312,7 +312,7 @@ class TriFuse(nn.Module):
         if head == "retina":
             head = Retina(
                 num_classes=self.num_classes,
-                in_channels_list=[96, 192, 384, 768],
+                in_channels_list=[32, 64, 128, 256],
                 fuse_fm=fuse_fm,
                 num_anchors=num_anchors,
                 out_channels=192,
@@ -824,9 +824,9 @@ class Global_block(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.shift_size = shift_size
-        assert (
-            0 <= self.shift_size < self.window_size
-        ), "shift_size must in 0-window_size"
+        assert 0 <= self.shift_size < self.window_size, (
+            "shift_size must in 0-window_size"
+        )
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
