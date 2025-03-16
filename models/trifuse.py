@@ -312,10 +312,10 @@ class TriFuse(nn.Module):
         if head == "retina":
             head = Retina(
                 num_classes=self.num_classes,
-                in_channels_list=[32, 64, 128, 256],
-                fuse_fm=fuse_fm,
-                num_anchors=num_anchors,
                 out_channels=256,
+                fuse_fm=fuse_fm,
+                num_fm=4,
+                num_anchors=num_anchors,
             )
         elif head == "detr":
             head = DETR(
