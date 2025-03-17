@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from torchvision.ops.misc import MLP
-from torchvision.models.detection.anchor_utils import AnchorGenerator
 import numpy as np
 from typing import Optional
 
@@ -432,7 +430,7 @@ class TriFuse(nn.Module):
                 assert targets is not None, "During training, targets must be provided!"
                 return self.head([x_1, x_2, x_3, x_4], imgs, targets)
             else:
-                return self.head([x_1, x_2, x_3, x_4], imgs)
+                return self.head([x_1, x_2, x_3, x_4], imgs, None)
         else:  # DETR
             return self.head([x_1, x_2, x_3, x_4])
 
