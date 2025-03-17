@@ -146,8 +146,6 @@ class Retina(nn.Module):
         cls_logits = torch.cat(cls_logits, dim=1)
         reg_logits = torch.cat(reg_logits, dim=1)
 
-        print(cls_logits.shape, targets[0]["labels"].shape)
-
         image_list = self._to_ImageList(images)
         anchors = self.anchor_generator(image_list, feature_maps)
 
@@ -221,15 +219,6 @@ class Retina(nn.Module):
 
             # create the target classification
             gt_classes_target = torch.zeros_like(cls_logits_per_image)
-
-            print(len(matched_idxs_per_image[foreground_idxs_per_image]))
-            print(
-                len(
-                    targets_per_image["labels"][
-                        matched_idxs_per_image[foreground_idxs_per_image]
-                    ]
-                )
-            )
 
             gt_classes_target[
                 foreground_idxs_per_image,
