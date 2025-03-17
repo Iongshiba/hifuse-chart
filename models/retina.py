@@ -285,19 +285,19 @@ class Retina(nn.Module):
         results = []
 
         for img_idx in range(len(images)):
-            cls_logits_per_image = [l[img_idx] for l in cls_logits]
-            reg_logits_per_image = [l[img_idx] for l in reg_logits]
+            cls_logits_per_image = [L[img_idx] for L in cls_logits]
+            reg_logits_per_image = [L[img_idx] for L in reg_logits]
             anchors_per_image = anchors[img_idx]
 
             cls_scores = torch.cat(
                 [
-                    l.permute(1, 2, 0).reshape(-1, self.num_classes)
-                    for l in cls_logits_per_image
+                    L.permute(1, 2, 0).reshape(-1, self.num_classes)
+                    for L in cls_logits_per_image
                 ],
                 dim=0,
             )
             reg_deltas = torch.cat(
-                [l.permute(1, 2, 0).reshape(-1, 4) for l in reg_logits_per_image], dim=0
+                [L.permute(1, 2, 0).reshape(-1, 4) for L in reg_logits_per_image], dim=0
             )
 
             cls_probs = cls_scores.sigmoid()
