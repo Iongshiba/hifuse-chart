@@ -1,6 +1,7 @@
+import os
 import sys
 import torch
-
+from utils.misc import evaluate_yolo_with_coco
 from tqdm import tqdm
 
 
@@ -9,19 +10,18 @@ def train_one_epoch(
 ):
     model.train()
     accu_loss = torch.zeros(1).to(device)
-    accu_num = torch.zeros(1).to(device)
     optimizer.zero_grad()
 
     sample_num = 0
-    dataloader = tqdm(dataloader, file=sys.stdout)
-    for step, data in enumerate(dataloader):
-        images, labels = data
+    bar = tqdm(dataloader, file=sys.stdout)
+    for step, data in enumerate(bar):
+        images, anns, _ = data
         images = images.to(device)
-        labels = [{k: v.to(device) for k, v in t.items()} for t in labels]
+        anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
         sample_num += images.shape[0]
 
         preds = model(images)
-        losses = criterion(preds, labels)
+        losses = criterion(preds, anns)
         loss = sum(losses.values())
 
         loss.backward()
@@ -43,23 +43,42 @@ def train_one_epoch(
 @torch.no_grad()
 def evaluate(model, dataloader, criterion, device, epoch):
     model.eval()
-    accu_num = torch.zeros(1).to(device)
     accu_loss = torch.zeros(1).to(device)
+    pd_labels = []
+    pd_bboxes = []
+    gt_labels = []
+    gt_bboxes = []
 
     sample_num = 0
-    dataloader = tqdm(dataloader, file=sys.stdout)
-    for step, data in enumerate(dataloader):
-        images, labels = data
+    bar = tqdm(dataloader, file=sys.stdout)
+    for step, data in enumerate(bar):
+        images, anns, images_id = data
         images = images.to(device)
-        labels = [{k: v.to(device) for k, v in t} for t in labels]
+        anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
         sample_num += images.shape[0]
 
+        print(images_id)
         preds = model(images.to(device))
-        losses = criterion(preds, labels)
-        loss = sum(losses.values())
+        pd_labels += preds["pred_logits"]
+        pd_bboxes += preds["pred_boxes"]
+        gt_labels.append([t["labels"] for t in anns])
+        gt_bboxes.append([t["boxes"] for t in anns])
 
-        accu_loss += loss
+        if step == 3:
+            break
 
-        dataloader.desc = f"[Validate Epoch {epoch}]\tLoss: {loss.item():.3f}"
+        # dataloader.desc = f"[Validate Epoch {epoch}]\tLoss: {loss.item():.3f}"
+
+    pd_labels = torch.stack(pd_labels, dim=0)
+    pd_bboxes = torch.stack(pd_bboxes, dim=0)
+
+    result = evaluate_yolo_with_coco(
+        dataloader.dataset.base_dir,
+        dataloader.dataset.class_file,
+        (pd_bboxes, pd_labels),
+        images_id,
+    )
+
+    print(result)
 
     return accu_loss.item() / (step + 1)
