@@ -333,10 +333,9 @@ class SetCriterion(nn.Module):
 
     def loss_boxes(self, outputs, targets, indices):
         # Non object mask: ignore computing loss for non object boundigng box
-        tgt_label = torch.cat([t["labels"][i] for t, (_, i) in zip(targets, indices)])
-        idx = self._get_src_permutation_idx(indices)
-        mask = tgt_label != self.num_classes
+        mask = self._get_object_mask(targets, indices)
 
+        idx = self._get_src_permutation_idx(indices)
         src_boxes = outputs["pred_boxes"][idx][mask]
         tgt_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)])[
             mask
@@ -374,13 +373,18 @@ class SetCriterion(nn.Module):
 
         return batch_idx, src_idx
 
-    def _get_tgt_permutation_idx(indices):
+    def _get_tgt_permutation_idx(self, indices):
         batch_idx = torch.cat(
             [torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)]
         )
         src_idx = torch.cat([tgt for (_, tgt) in indices])
 
         return batch_idx, src_idx
+
+    def _get_object_mask(self, targets, indices):
+        tgt_label = torch.cat([t["labels"][i] for t, (_, i) in zip(targets, indices)])
+
+        return tgt_label != self.num_classes
 
     def forward(self, outputs, targets):
         indices = self.matcher(outputs, targets)
