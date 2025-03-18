@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from torchvision.ops.misc import MLP
-from torchvision.models.detection.anchor_utils import AnchorGenerator
 import numpy as np
 from typing import Optional
 
@@ -312,10 +310,10 @@ class TriFuse(nn.Module):
         if head == "retina":
             head = Retina(
                 num_classes=self.num_classes,
-                in_channels_list=[96, 192, 384, 768],
+                out_channels=256,
                 fuse_fm=fuse_fm,
+                num_fm=4,
                 num_anchors=num_anchors,
-                out_channels=192,
             )
         elif head == "detr":
             head = DETR(
@@ -342,7 +340,7 @@ class TriFuse(nn.Module):
             nn.init.trunc_normal_(m.weight, std=0.2)
             nn.init.constant_(m.bias, 0)
 
-    def forward(self, imgs):
+    def forward(self, imgs, targets=None):
         # images (224, 224, 3)
 
         ######  Global Branch ######
@@ -428,7 +426,11 @@ class TriFuse(nn.Module):
         # return self.head(x_f)
 
         if isinstance(self.head, Retina):
-            return self.head([x_1, x_2, x_3, x_4])
+            if self.training:
+                assert targets is not None, "During training, targets must be provided!"
+                return self.head([x_1, x_2, x_3, x_4], imgs, targets)
+            else:
+                return self.head([x_1, x_2, x_3, x_4], imgs, None)
         else:  # DETR
             return self.head([x_1, x_2, x_3, x_4])
 
@@ -824,9 +826,9 @@ class Global_block(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.shift_size = shift_size
-        assert (
-            0 <= self.shift_size < self.window_size
-        ), "shift_size must in 0-window_size"
+        assert 0 <= self.shift_size < self.window_size, (
+            "shift_size must in 0-window_size"
+        )
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
