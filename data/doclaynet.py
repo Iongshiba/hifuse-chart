@@ -1,3 +1,4 @@
+import os
 import torch
 
 from PIL import Image
@@ -6,8 +7,17 @@ from torch.utils.data import Dataset
 
 class YOLODataset(Dataset):
     def __init__(
-        self, images_path: list, labels_path: list, num_classes=1, transform=None
+        self,
+        images_path: list,
+        labels_path: list,
+        class_file: str,
+        num_classes=1,
+        transform=None,
     ):
+        self.class_file = class_file
+        self.image_dir = os.path.dirname(images_path[0])
+        self.label_dir = os.path.dirname(labels_path[0])
+        self.base_dir = os.path.dirname(self.image_dir)
         self.images_path = images_path
         self.labels_path = labels_path
         self.transform = transform
@@ -38,7 +48,7 @@ class YOLODataset(Dataset):
         if self.transform is not None:
             img = self.transform(img)
 
-        return img, label
+        return img, label, self.images_path[item]
 
     def _load_label(self, label_path):
         with open(label_path, "r") as f:
@@ -59,8 +69,9 @@ class YOLODataset(Dataset):
 
     @staticmethod
     def collate_fn(batch):
-        images, labels = tuple(zip(*batch))
+        images, labels, paths = tuple(zip(*batch))
 
         images = torch.stack(images, dim=0)
         labels = list(labels)
-        return images, labels
+        paths = list(paths)
+        return images, labels, paths
