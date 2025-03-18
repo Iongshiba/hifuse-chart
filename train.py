@@ -57,12 +57,14 @@ def main(args):
     train_dataset = YOLODataset(
         images_path=train_images_path,
         labels_path=train_images_label,
+        class_file=args.class_file,
         transform=data_transform["train"],
     )
 
     val_dataset = YOLODataset(
         images_path=val_images_path,
         labels_path=val_images_label,
+        class_file=args.class_file,
         transform=data_transform["val"],
     )
 
@@ -138,15 +140,15 @@ def main(args):
     for epoch in range(start_epoch + 1, args.epochs + 1):
 
         # train
-        train_loss, train_acc = train_one_epoch(
-            model=model,
-            optimizer=optimizer,
-            dataloader=train_loader,
-            criterion=criterion,
-            device=device,
-            epoch=epoch,
-            lr_scheduler=lr_scheduler,
-        )
+        # train_loss, train_acc = train_one_epoch(
+        #     model=model,
+        #     optimizer=optimizer,
+        #     dataloader=train_loader,
+        #     criterion=criterion,
+        #     device=device,
+        #     epoch=epoch,
+        #     lr_scheduler=lr_scheduler,
+        # )
 
         # validate
         val_loss, val_acc = evaluate(
@@ -156,6 +158,8 @@ def main(args):
             device=device,
             epoch=epoch,
         )
+
+        return
 
         tags = ["train_loss", "train_acc", "val_loss", "val_acc", "learning_rate"]
         tb_writer.add_scalar(tags[0], train_loss, epoch)
@@ -204,6 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--RESUME", type=bool, default=False)
 
     parser.add_argument("--root_data_path", type=str, default="")
+    parser.add_argument("--class_file", type=str, default="")
     parser.add_argument("--train_data_path", type=str, default="")
     parser.add_argument("--val_data_path", type=str, default="")
 
