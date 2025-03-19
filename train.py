@@ -8,14 +8,12 @@ import torch
 import torch.optim as optim
 
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import transforms
-from data.doclaynet import YOLODataset
-from utils.data import read_data_detection
 from utils.build import (
-    create_lr_scheduler,
-    get_params_groups,
-    create_criterion,
     TriFuse_Tiny,
+    get_params_groups,
+    create_lr_scheduler,
+    create_criterion,
+    create_dataset,
 )
 from utils.engine import train_one_epoch, evaluate
 
@@ -31,48 +29,13 @@ def main(args):
 
     tb_writer = SummaryWriter()
 
-    train_images_path, train_images_label, val_images_path, val_images_label = (
-        read_data_detection(args.root_data_path)
-    )
-
-    img_size = 224
-    data_transform = {
-        "train": transforms.Compose(
-            [
-                transforms.Resize(img_size),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-            ]
-        ),
-        "val": transforms.Compose(
-            [
-                transforms.Resize(img_size),
-                transforms.ToTensor(),
-                transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
-            ]
-        ),
-    }
-
-    train_dataset = YOLODataset(
-        images_path=train_images_path,
-        labels_path=train_images_label,
-        class_file=args.class_file,
-        transform=data_transform["train"],
-    )
-
-    val_dataset = YOLODataset(
-        images_path=val_images_path,
-        labels_path=val_images_label,
-        class_file=args.class_file,
-        transform=data_transform["val"],
-    )
-
     batch_size = args.batch_size
     nw = min(
         [os.cpu_count(), batch_size if batch_size > 1 else 0, 8]
     )  # number of workers
     print("Using {} dataloader workers every process".format(nw))
+
+    train_dataset, val_dataset = create_dataset(args)
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -199,18 +162,19 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--head", type=str, default="detr")
-    parser.add_argument("--num_classes", type=int, default=1)
+    parser.add_argument("--num-classes", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--wd", type=float, default=1e-2)
     parser.add_argument("--RESUME", type=bool, default=False)
 
-    parser.add_argument("--root_data_path", type=str, default="")
-    parser.add_argument("--class_file", type=str, default="")
-    parser.add_argument("--train_data_path", type=str, default="")
-    parser.add_argument("--val_data_path", type=str, default="")
+    parser.add_argument("--data", type=str, default="")
+    parser.add_argument("--root-data-path", type=str, default="")
+    parser.add_argument("--train-data-path", type=str, default="")
+    parser.add_argument("--val-data-path", type=str, default="")
 
     parser.add_argument("--weights", type=str, default="", help="initial weights path")
 

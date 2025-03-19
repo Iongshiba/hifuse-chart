@@ -1,12 +1,14 @@
 import math
 import torch
 
-
 import torch.nn as nn
 import torch.nn.functional as F
 
+from torchvision import transforms
 from models.trifuse import TriFuse
 from models.detr import SetCriterion
+from utils.data import read_data_detection_yolo, read_data_detection_coco
+from data.doclaynet import YOLODataset, COCODataset
 
 
 def TriFuse_Tiny(num_classes: int, head: str = "detr"):
@@ -38,6 +40,58 @@ def TriFuse_Base(num_classes: int, head: str = "detr"):
         head=head,
     )
     return model
+
+
+def create_dataset(args):
+    img_size = args.image_size
+    data_transform = {
+        "train": transforms.Compose(
+            [
+                transforms.Resize(img_size),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
+            ]
+        ),
+        "val": transforms.Compose(
+            [
+                transforms.Resize(img_size),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
+            ]
+        ),
+    }
+
+    if args.data == "yolo":
+        train_images_path, train_images_label, val_images_path, val_images_label = (
+            read_data_detection_yolo(args.root_data_path)
+        )
+        train_dataset = YOLODataset(
+            images_path=train_images_path,
+            labels_path=train_images_label,
+            transform=data_transform["train"],
+        )
+        val_dataset = YOLODataset(
+            images_path=val_images_path,
+            labels_path=val_images_label,
+            transform=data_transform["val"],
+        )
+    elif args.data == "coco":
+        train_images_dir, train_label_path, val_images_dir, val_label_path = (
+            read_data_detection_coco(args.root_data_path)
+        )
+        train_dataset = COCODataset(
+            image_dir=train_images_dir,
+            label_path=train_label_path,
+            transform=data_transform["train"],
+        )
+        val_dataset = COCODataset(
+            image_dir=val_images_dir,
+            label_path=val_label_path,
+            transform=data_transform["train"],
+        )
+
+    return train_dataset, val_dataset
 
 
 def create_criterion(num_classees: int, head: str = "detr", **kwarg):
