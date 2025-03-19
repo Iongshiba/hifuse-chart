@@ -17,21 +17,15 @@ class Retina(nn.Module):
     from a Feature Pyramid Network (FPN). It supports optional feature map fusion to generate
     a single prediction instead of separate predictions for each level of the FPN.
 
-    Attributes:
-        fuse_fm (bool): If True, fuses feature maps to a unified size before making predictions.
-        cls_subnet (nn.Sequential): Convolutional layers for the classification branch.
-        cls_logits (nn.Conv2d): Final classification layer predicting class logits per anchor.
-        reg_subnet (nn.Sequential): Convolutional layers for the bounding box regression branch.
-        bbox_reg (nn.Conv2d): Final regression layer predicting bounding box offsets per anchor.
-        fuse (nn.Conv2d): 1x1 convolution for fusing upsampled feature maps (used if `fuse_fm=True`).
-
     Args:
         num_classes (int): Number of object classes to detect.
+        out_channels (int, optional): Number of output channels for the feature maps. Defaults to 192.
         fuse_fm (bool, optional): Whether to fuse feature maps before prediction. Defaults to True.
         num_fm (int, optional): Number of input feature maps. Defaults to 4.
-        in_channels_list (list[int], optional): List of input channels for each FPN level. Defaults to [96, 192, 384, 768].
         num_anchors (int, optional): Number of anchor boxes per feature map location. Defaults to 9.
-        out_channels (int, optional): Number of output channels for the feature maps. Defaults to 192.
+        anchor_generator (AnchorGenerator, optional): AnchorGenerator object for anchors generation. Defaults to None.
+        proposal_matcher (det_utils.Matcher, optional): det_utils.Matcher object to match anchor boxes. Defaults to None
+        regression_loss_type (str, optional): Loss function for regression. Defaults to "smooth_l1".
     """
 
     def __init__(
@@ -43,7 +37,7 @@ class Retina(nn.Module):
         num_anchors: int = 9,
         anchor_generator=None,
         proposal_matcher=None,
-        regression_loss_type=None,
+        regression_loss_type="smooth_l1",
     ):
         super().__init__()
 
@@ -61,8 +55,6 @@ class Retina(nn.Module):
         else:
             self.anchor_generator = self._default_anchor_gen()
 
-        if regression_loss_type is None:
-            regression_loss_type = "smooth_l1"
         self.reg_loss_type = regression_loss_type
 
         # Classification branch
@@ -161,12 +153,39 @@ class Retina(nn.Module):
             return self.postprocess(cls_logits, reg_logits, images, anchors)
 
     def _to_ImageList(self, images):
+        """
+        Converts a list of image tensors into an ImageList object.
+
+        Args:
+            images (list[torch.Tensor]): A list of image tensors, where each tensor has the shape (C, H, W), representing channels, height, and width.
+
+        Returns:
+            ImageList: An ImageList object containing the stacked images and their original sizes.
+
+        Notes:
+            - The `ImageList` class is typically used in object detection models to
+              handle batched images of varying sizes.
+            - `original_sizes` stores the height and width of each image before any processing.
+        """
         original_sizes = [img.shape[-2:] for img in images]
         return ImageList(images, original_sizes)
 
     def _default_proposal_matcher(
         self, fg_iou_thresh, bg_iou_thresh, allow_low_quality_matches=False
     ):
+        """
+        Creates a default proposal matcher for assigning ground truth boxes to anchors
+        based on IoU (Intersection over Union) thresholds.
+
+        Args:
+            fg_iou_thresh (float): The IoU threshold above which an anchor is considered a foreground (positive) match.
+            bg_iou_thresh (float): The IoU threshold below which an anchor is considered a background (negative) match.
+            allow_low_quality_matches (bool, optional): If True, allows certain lower-quality matches
+                to ensure each ground truth box has at least one matching anchor. Default is False.
+
+        Returns:
+            det_utils.Matcher: A matcher instance that assigns labels to anchors based on the IoU thresholds.
+        """
         proposal_matcher = det_utils.Matcher(
             fg_iou_thresh,
             bg_iou_thresh,
@@ -175,6 +194,25 @@ class Retina(nn.Module):
         return proposal_matcher
 
     def _default_anchor_gen(self):
+        """
+        Creates a default anchor generator with predefined sizes and aspect ratios for different
+        feature pyramid levels.
+
+        Returns:
+            AnchorGenerator: An instance of `AnchorGenerator` configured with specific anchor sizes
+            and aspect ratios.
+
+        Notes:
+            - The anchor sizes are defined for four feature map levels:
+                - P1 (56x56): (16, 32, 64)
+                - P2 (28x28): (32, 64, 128)
+                - P3 (14x14): (64, 128, 192)
+                - P4 (7x7): (128, 192, 224)
+            - Each level has aspect ratios of (0.5, 1.0, 2.0), meaning:
+                - 0.5: Tall and narrow anchors
+                - 1.0: Square anchors
+                - 2.0: Wide and short anchors
+        """
         sizes = (
             (16, 32, 64),  # P1 (56x56)
             (32, 64, 128),  # P2 (28x28)
@@ -189,6 +227,23 @@ class Retina(nn.Module):
         return anchor_generator
 
     def compute_loss(self, targets, cls_logits, bbox_reg, anchors):
+        """
+        Computes the classification and regression loss.
+
+        Args:
+            targets (list[dict]): Ground-truth annotations for each image in the batch.
+                Each dictionary contains:
+                    - "boxes" (torch.Tensor[N, 4]): Ground-truth bounding boxes.
+                    - "labels" (torch.Tensor[N]): Class labels for the objects.
+            cls_logits (torch.Tensor): Predicted classification logits of shape (batch_size, num_anchors, num_classes).
+            bbox_reg (torch.Tensor): Predicted bounding box regression values of shape (batch_size, num_anchors, 4).
+            anchors (torch.Tensor): Anchor boxes used for prediction, shape (num_anchors, 4).
+
+        Returns:
+            dict: A dictionary containing:
+                - "cls_loss" (torch.Tensor): Classification loss.
+                - "reg_loss" (torch.Tensor): Bounding box regression loss.
+        """
         matched_idxs = self.match_anchors(targets, anchors)
 
         # Classification loss
@@ -203,7 +258,24 @@ class Retina(nn.Module):
         }
 
     # PyTorch RetinaNetClassificationHead compute_loss()
-    def _cls_loss(self, targets, cls_logits, matched_idxs):
+    def _cls_loss(self, targets, cls_logits, matched_idxs, alpha=0.25, gamma=2):
+        """
+        Computes the classification loss using the sigmoid focal loss.
+
+        Args:
+            targets (list[dict]): List of target annotations for each image in the batch.
+                Each dictionary contains:
+                - "labels" (torch.Tensor[N]): Class labels for ground truth objects.
+            cls_logits (list[torch.Tensor]): List of predicted classification logits for each image,
+                with shape (num_anchors, num_classes).
+            matched_idxs (list[torch.Tensor]): List of tensors containing indices of matched
+                ground truth boxes for each anchor.
+            alpha (float, optional): an argument for the focal loss function. Defaults to 0.25.
+            gamma (int, optional): an argument for the focal loss function. Defaults to 2.
+
+        Returns:
+            Tensor: The computed classification loss averaged over all images.
+        """
         losses = []
 
         for targets_per_image, cls_logits_per_image, matched_idxs_per_image in zip(
@@ -235,8 +307,8 @@ class Retina(nn.Module):
                 sigmoid_focal_loss(
                     cls_logits_per_image[valid_idxs_per_image],
                     gt_classes_target[valid_idxs_per_image],
-                    alpha=0.25,
-                    gamma=2,
+                    alpha=alpha,
+                    gamma=gamma,
                     reduction="sum",
                 )
                 / max(1, num_foreground)
@@ -246,6 +318,24 @@ class Retina(nn.Module):
 
     # PyTorch RetinaNetRegressionHead compute_loss()
     def _reg_loss(self, targets, bbox_reg, anchors, matched_idxs):
+        """
+        Computes the bounding box regression loss.
+
+        Args:
+            targets (list[dict]): List of target annotations for each image in the batch.
+                Each dictionary contains:
+                - "boxes" (torch.Tensor[N, 4]): Ground truth bounding boxes in (x1, y1, x2, y2) format.
+            bbox_reg (list[torch.Tensor]): List of predicted bounding box deltas for each image,
+                with shape (num_anchors, 4).
+            anchors (list[torch.Tensor]): List of anchor boxes for each image, where each tensor
+                has shape (num_anchors, 4).
+            matched_idxs (list[torch.Tensor]): List of tensors containing indices of matched
+                ground truth boxes for each anchor.
+
+        Returns:
+            torch.Tensor: The computed bounding box regression loss averaged over all images.
+            - The final loss is normalized by the number of foreground samples and averaged over all images.
+        """
         losses = []
 
         for (
@@ -290,6 +380,23 @@ class Retina(nn.Module):
     def postprocess(
         self, cls_logits, reg_logits, images, anchors, score_thresh=0.5, nms_thresh=0.5
     ):
+        """
+        Post-processes the raw predictions from the model to obtain final detection results.
+
+        Args:
+            cls_logits (torch.Tensor): Classification logits of shape (batch_size, num_anchors, num_classes).
+            reg_logits (torch.Tensor): Bounding box regression logits of shape (batch_size, num_anchors, 4).
+            images (list): List of input images for reference (not directly used in processing).
+            anchors (torch.Tensor): Anchor boxes used for predictions, shape (batch_size, num_anchors, 4).
+            score_thresh (float, optional): Confidence threshold for filtering weak detections. Default is 0.5.
+            nms_thresh (float, optional): Non-maximum suppression (NMS) threshold to remove redundant boxes. Default is 0.5.
+
+        Returns:
+            list of dict: A list of dictionaries, one per image, each containing:
+                - "boxes" (torch.Tensor[N, 4]): Final detected bounding boxes after post-processing.
+                - "scores" (torch.Tensor[N]): Confidence scores of the detections.
+                - "labels" (torch.Tensor[N]): Predicted class labels for the detections.
+        """
         results = []
 
         batch_size = cls_logits.shape[0]
@@ -329,6 +436,22 @@ class Retina(nn.Module):
         return results
 
     def match_anchors(self, targets, anchors):
+        """
+        Matches anchor boxes to ground truth boxes for each image in the batch.
+
+        Args:
+            targets (list[dict]): List of target annotations for each image in the batch.
+                Each dictionary contains:
+                - "boxes" (torch.Tensor[N, 4]): Ground truth bounding boxes in (x1, y1, x2, y2) format.
+            anchors (list[torch.Tensor]): List of anchor boxes for each image, where each tensor
+                has shape (num_anchors, 4).
+
+        Returns:
+            list[torch.Tensor]: A list of tensors, one per image, containing the indices of the matched
+            ground truth boxes for each anchor.
+            - If no ground truth boxes exist, a tensor of shape (num_anchors,) filled with -1 is returned.
+            - Otherwise, the indices indicate which ground truth box each anchor is matched to.
+        """
         matched_idxs = []
         for anchors_per_image, targets_per_image in zip(anchors, targets):
             # No ground truth check
