@@ -1,8 +1,12 @@
 import os
 import sys
 import torch
-from utils.misc import evaluate_yolo_with_coco
+
+from PIL import Image
 from tqdm import tqdm
+from utils.misc import box_cxcywh_to_xyxy
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
 
 
 def train_one_epoch(
@@ -44,41 +48,69 @@ def train_one_epoch(
 def evaluate(model, dataloader, criterion, device, epoch):
     model.eval()
     accu_loss = torch.zeros(1).to(device)
-    pd_labels = []
-    pd_bboxes = []
-    gt_labels = []
-    gt_bboxes = []
+    out_logits = []
+    out_bboxes = []
+    images_coco = []
 
     sample_num = 0
     bar = tqdm(dataloader, file=sys.stdout)
     for step, data in enumerate(bar):
-        images, anns, images_id = data
+        images, anns, item = data
         images = images.to(device)
         anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
         sample_num += images.shape[0]
 
-        print(images_id)
         preds = model(images.to(device))
-        pd_labels += preds["pred_logits"]
-        pd_bboxes += preds["pred_boxes"]
-        gt_labels.append([t["labels"] for t in anns])
-        gt_bboxes.append([t["boxes"] for t in anns])
+        out_logits.append(preds["pred_logits"])
+        out_bboxes.append(preds["pred_boxes"])
+        images_coco += item
+        # gt_labels.append([t["labels"] for t in anns])
+        # gt_bboxes.append([t["boxes"] for t in anns])
 
-        if step == 3:
-            break
+    out_logits = torch.cat(out_logits, dim=0)
+    out_bboxes = torch.cat(out_bboxes, dim=0)
 
-        # dataloader.desc = f"[Validate Epoch {epoch}]\tLoss: {loss.item():.3f}"
+    prob = out_logits.softmax(-1)
+    scores, labels = prob[..., :-1].max(-1)
 
-    pd_labels = torch.stack(pd_labels, dim=0)
-    pd_bboxes = torch.stack(pd_bboxes, dim=0)
+    boxes = box_cxcywh_to_xyxy(out_bboxes)
+    # and from relative [0, 1] to absolute [0, height] coordinates
+    img_h, img_w = images_coco[0]["height"], images_coco[0]["width"]
+    scale_fct = torch.tensor([img_w, img_h, img_w, img_h], device=out_bboxes.device)
+    boxes = boxes * scale_fct[None, None, :]
+    ### EVALUATION WITH PYCOCOTOOLS ###
 
-    result = evaluate_yolo_with_coco(
-        dataloader.dataset.base_dir,
-        dataloader.dataset.class_file,
-        (pd_bboxes, pd_labels),
-        images_id,
+    predictions = [
+        {
+            "id": i,
+            "image_id": images_coco[i]["id"],
+            "category_id": l,
+            "box": b,
+            "score": s,
+        }
+        for i in range(len(images_coco))
+        for l, b, s in zip(labels[i], boxes[i], scores[i])
+    ]
+
+    gt_coco = COCO(dataloader.dataset.label_path)
+    pd_coco = gt_coco.loadRes(predictions)
+    eval_coco = COCOeval(gt_coco, pd_coco, "bbox")
+
+    eval_coco.evaluate()
+    eval_coco.accumulate()
+    precision = eval_coco.eval["precision"].mean()
+    recall = eval_coco.eval["recall"].mean()
+    eval_coco.summarize()
+
+    stats = {
+        "precision": precision.item(),
+        "recall": recall.item(),
+        "mAP50": eval_coco.stats[1].item(),
+        "mAP5095": eval_coco.stats[0].item(),
+    }
+
+    print(
+        f"[Val Epoch {epoch}]\tPrecision: {precision.item():.2f}\tRecall: {recall.item():.2f}\tmAP@.5: {eval_coco.stats[1].item():.2f}\tmAP@[.5:.95]: {eval_coco.stats[0].item():.2f}"
     )
 
-    print(result)
-
-    return accu_loss.item() / (step + 1)
+    return stats
