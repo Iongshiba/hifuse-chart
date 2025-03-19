@@ -157,7 +157,7 @@ class Retina(nn.Module):
 
             return self.compute_loss(targets, cls_logits, reg_logits, anchors)
 
-        else:  # inference (return prediction dict of cls and bbox)
+        else:
             return self.postprocess(cls_logits, reg_logits, images, anchors)
 
     def _to_ImageList(self, images):
@@ -237,7 +237,7 @@ class Retina(nn.Module):
                     gt_classes_target[valid_idxs_per_image],
                     alpha=0.25,
                     gamma=2,
-                    reduction="mean",
+                    reduction="sum",
                 )
                 / max(1, num_foreground)
             )
@@ -265,6 +265,14 @@ class Retina(nn.Module):
             bbox_reg_per_image = bbox_reg_per_image[foreground_idxs_per_image, :]
             anchors_per_image = anchors_per_image[foreground_idxs_per_image, :]
 
+            if matched_gt_boxes_per_image.numel() == 0:
+                matched_gt_boxes_per_image = torch.full(
+                    (1, 4),
+                    -1.0,
+                    dtype=torch.float32,
+                    device=matched_gt_boxes_per_image.device,
+                )
+
             # compute the loss
             losses.append(
                 _box_loss(
@@ -284,33 +292,35 @@ class Retina(nn.Module):
     ):
         results = []
 
-        for img_idx in range(len(images)):
-            cls_logits_per_image = [L[img_idx] for L in cls_logits]
-            reg_logits_per_image = [L[img_idx] for L in reg_logits]
+        batch_size = cls_logits.shape[0]
+
+        for img_idx in range(batch_size):
+            # Extract per-image predictions
+            cls_scores = cls_logits[img_idx]  # [112896, 80]
+            reg_deltas = reg_logits[img_idx]  # [112896, 4]
             anchors_per_image = anchors[img_idx]
 
-            cls_scores = torch.cat(
-                [
-                    L.permute(1, 2, 0).reshape(-1, self.num_classes)
-                    for L in cls_logits_per_image
-                ],
-                dim=0,
-            )
-            reg_deltas = torch.cat(
-                [L.permute(1, 2, 0).reshape(-1, 4) for L in reg_logits_per_image], dim=0
-            )
+            # Convert logits to probabilities
+            cls_probs = cls_scores.sigmoid()  # [112896, 80]
 
-            cls_probs = cls_scores.sigmoid()
-            boxes = self.box_coder.decode(reg_deltas, anchors_per_image)
+            boxes = self.box_coder.decode(
+                reg_deltas, [anchors_per_image]
+            )  # [112896, 1, 4]
+            boxes = boxes.squeeze(1)  # -> [112896, 4]
 
-            max_scores, labels = cls_probs.max(dim=1)
+            max_scores, labels = cls_probs.max(
+                dim=1
+            )  # max_scores: (112896,) labels: (112896,)
+
             keep = max_scores > score_thresh
+
             boxes, scores, labels = boxes[keep], max_scores[keep], labels[keep]
 
+            # Apply NMS
             keep_idxs = batched_nms(boxes, scores, labels, nms_thresh)
             boxes, scores, labels = (
                 boxes[keep_idxs],
-                max_scores[keep_idxs],
+                scores[keep_idxs],
                 labels[keep_idxs],
             )
 
