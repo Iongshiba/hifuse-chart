@@ -88,7 +88,7 @@ def create_dataset(args):
         val_dataset = COCODataset(
             image_dir=val_images_dir,
             label_path=val_label_path,
-            transform=data_transform["train"],
+            transform=data_transform["val"],
         )
 
     return train_dataset, val_dataset
