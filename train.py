@@ -88,7 +88,7 @@ def main(args):
         optimizer, len(train_loader), args.epochs, warmup=True, warmup_epochs=1
     )
 
-    best_acc = 0.0
+    best_map = -1.0
     start_epoch = 0
 
     if args.RESUME:
@@ -114,7 +114,7 @@ def main(args):
         # )
 
         # validate
-        val_loss, val_acc = evaluate(
+        stats = evaluate(
             model=model,
             dataloader=val_loader,
             criterion=criterion,
@@ -122,21 +122,19 @@ def main(args):
             epoch=epoch,
         )
 
-        return
-
-        tags = ["train_loss", "train_acc", "val_loss", "val_acc", "learning_rate"]
-        tb_writer.add_scalar(tags[0], train_loss, epoch)
-        tb_writer.add_scalar(tags[1], train_acc, epoch)
-        tb_writer.add_scalar(tags[2], val_loss, epoch)
-        tb_writer.add_scalar(tags[3], val_acc, epoch)
+        tags = ["precision", "recall", "mAP50", "mAP5095", "learning_rate"]
+        tb_writer.add_scalar(tags[0], stats["precision"], epoch)
+        tb_writer.add_scalar(tags[1], stats["recall"], epoch)
+        tb_writer.add_scalar(tags[2], stats["mAP50"], epoch)
+        tb_writer.add_scalar(tags[3], stats["mAP5095"], epoch)
         tb_writer.add_scalar(tags[4], optimizer.param_groups[0]["lr"], epoch)
 
-        if best_acc < val_acc:
+        if best_map < stats["mAP5095"]:
             if not os.path.isdir("./model_weight"):
                 os.mkdir("./model_weight")
             torch.save(model.state_dict(), "./model_weight/best_model.pth")
             print("Saved epoch{} as new best model".format(epoch))
-            best_acc = val_acc
+            best_map = stats["mAP5095"]
 
         if epoch % 10 == 0:
             print("epoch:", epoch)
@@ -154,7 +152,9 @@ def main(args):
             )
 
         # add loss, acc and lr into tensorboard
-        print("[epoch {}] accuracy: {}".format(epoch, round(val_acc, 3)))
+        print(
+            f"[epoch {epoch}] precision: {stats["precision"]:.2f} recall: {stats["recall"]:.2f} mAP@.5: {stats["mAP50"]:.2f} mAP@[.5:.95]: {stats["mAP5095"]:.2f}"
+        )
 
     total = sum([param.nelement() for param in model.parameters()])
     print("Number of parameters: %.2fM" % (total / 1e6))
