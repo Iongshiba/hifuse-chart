@@ -11,11 +11,9 @@ class YOLODataset(Dataset):
         self,
         images_path: list,
         labels_path: list,
-        class_file: str,
         num_classes=1,
         transform=None,
     ):
-        self.class_file = class_file
         self.image_dir = os.path.dirname(images_path[0])
         self.label_dir = os.path.dirname(labels_path[0])
         self.base_dir = os.path.dirname(self.image_dir)
@@ -29,10 +27,11 @@ class YOLODataset(Dataset):
 
     def __getitem__(self, item):
         img = Image.open(self.images_path[item])
+        img_w, img_h = img.size
         if img.mode != "RGB":
             img = img.convert("RGB")
 
-        anns = self._load_label(self.labels_path[item])
+        anns = self._load_label(self.labels_path[item], img_w, img_h)
         if len(anns) == 0:
             label = {
                 "labels": torch.as_tensor([self.num_classes], dtype=torch.int64),
@@ -51,18 +50,19 @@ class YOLODataset(Dataset):
 
         return img, label, self.images_path[item]
 
-    def _load_label(self, label_path):
+    def _load_label(self, label_path, img_w, img_h):
         with open(label_path, "r") as f:
             lines = f.readlines()
 
         boxes = []
         for line in lines:
             parts = line.strip().split()
+            x_center = float(parts[1]) * img_w
+            y_center = float(parts[2]) * img_h
+            width = float(parts[3]) * img_w
+            height = float(parts[4]) * img_h
             class_id = int(parts[0])
-            x_center = float(parts[1])
-            y_center = float(parts[2])
-            width = float(parts[3])
-            height = float(parts[4])
+
             # Append the box as a tuple
             boxes.append([class_id, x_center, y_center, width, height])
 
