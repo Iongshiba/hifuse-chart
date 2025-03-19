@@ -161,7 +161,7 @@ def main(args):
 
         # add loss, acc and lr into tensorboard
         print(
-            f"[epoch {epoch}] precision: {stats["precision"]:.2f} recall: {stats["recall"]:.2f} mAP@.5: {stats["mAP50"]:.2f} mAP@[.5:.95]: {stats["mAP5095"]:.2f}"
+            f"[epoch {epoch}] precision: {stats['precision']:.2f} recall: {stats['recall']:.2f} mAP@.5: {stats['mAP50']:.2f} mAP@[.5:.95]: {stats['mAP5095']:.2f}"
         )
 
     total = sum([param.nelement() for param in model.parameters()])
