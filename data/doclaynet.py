@@ -87,7 +87,7 @@ class COCODataset(Dataset):
         transform=None,
     ):
         self.image_dir = image_dir
-        self.label_dir = image_dir
+        self.label_path = label_path
         self.annotations = self._load_annotations(label_path)
         self.transform = transform
         self.num_classes = num_classes
