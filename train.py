@@ -103,15 +103,15 @@ def main(args):
     for epoch in range(start_epoch + 1, args.epochs + 1):
 
         # train
-        # train_loss, train_acc = train_one_epoch(
-        #     model=model,
-        #     optimizer=optimizer,
-        #     dataloader=train_loader,
-        #     criterion=criterion,
-        #     device=device,
-        #     epoch=epoch,
-        #     lr_scheduler=lr_scheduler,
-        # )
+        train_loss = train_one_epoch(
+            model=model,
+            optimizer=optimizer,
+            dataloader=train_loader,
+            criterion=criterion,
+            device=device,
+            epoch=epoch,
+            lr_scheduler=lr_scheduler,
+        )
 
         # validate
         stats = evaluate(
@@ -122,12 +122,20 @@ def main(args):
             epoch=epoch,
         )
 
-        tags = ["precision", "recall", "mAP50", "mAP5095", "learning_rate"]
-        tb_writer.add_scalar(tags[0], stats["precision"], epoch)
-        tb_writer.add_scalar(tags[1], stats["recall"], epoch)
-        tb_writer.add_scalar(tags[2], stats["mAP50"], epoch)
-        tb_writer.add_scalar(tags[3], stats["mAP5095"], epoch)
-        tb_writer.add_scalar(tags[4], optimizer.param_groups[0]["lr"], epoch)
+        tags = [
+            "train_loss",
+            "precision",
+            "recall",
+            "mAP50",
+            "mAP5095",
+            "learning_rate",
+        ]
+        tb_writer.add_scalar(tags[0], stats["train_loss"], epoch)
+        tb_writer.add_scalar(tags[1], stats["precision"], epoch)
+        tb_writer.add_scalar(tags[2], stats["recall"], epoch)
+        tb_writer.add_scalar(tags[3], stats["mAP50"], epoch)
+        tb_writer.add_scalar(tags[4], stats["mAP5095"], epoch)
+        tb_writer.add_scalar(tags[5], optimizer.param_groups[0]["lr"], epoch)
 
         if best_map < stats["mAP5095"]:
             if not os.path.isdir("./model_weight"):
