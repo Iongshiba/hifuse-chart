@@ -75,17 +75,15 @@ def read_val_data_classification(root: str):
     return val_images_path, val_images_label
 
 
-def read_data_detection(root: str):
+def read_data_detection_yolo(root: str):
     random.seed(0)
     assert os.path.exists(root), f"dataset root: {root} does not exist."
 
-    # Define directories
     train_images_dir = os.path.join(root, "images", "train")
     train_labels_dir = os.path.join(root, "labels", "train")
     val_images_dir = os.path.join(root, "images", "val")
     val_labels_dir = os.path.join(root, "labels", "val")
 
-    # Assert directories exist
     assert os.path.exists(
         train_images_dir
     ), f"images directory: {train_images_dir} does not exist."
@@ -99,7 +97,6 @@ def read_data_detection(root: str):
         val_labels_dir
     ), f"labels directory: {val_labels_dir} does not exist."
 
-    # Initialize path lists
     train_images_path = []
     train_labels_path = []
     val_images_path = []
@@ -107,7 +104,6 @@ def read_data_detection(root: str):
 
     supported = [".jpg", ".JPG", ".png", ".PNG"]
 
-    # Process training data
     train_image_files = [
         f for f in os.listdir(train_images_dir) if os.path.splitext(f)[-1] in supported
     ]
@@ -122,7 +118,6 @@ def read_data_detection(root: str):
             train_images_path.append(img_path)
             train_labels_path.append(label_path)
 
-    # Process validation data
     val_image_files = [
         f for f in os.listdir(val_images_dir) if os.path.splitext(f)[-1] in supported
     ]
@@ -141,3 +136,28 @@ def read_data_detection(root: str):
     print(f"{len(val_images_path)} images for validation.")
 
     return train_images_path, train_labels_path, val_images_path, val_labels_path
+
+
+def read_data_detection_coco(root: str):
+    random.seed(0)
+    assert os.path.exists(root), f"dataset root: {root} does not exist."
+
+    train_images_dir = os.path.join(root, "train")
+    val_images_dir = os.path.join(root, "val")
+    train_label_path = os.path.join(root, "train.json")
+    val_label_path = os.path.join(root, "val.json")
+
+    assert os.path.exists(
+        train_images_dir
+    ), f"images directory: {train_images_dir} does not exist."
+    assert os.path.exists(
+        val_images_dir
+    ), f"images directory: {val_images_dir} does not exist."
+    assert os.path.exists(
+        train_label_path
+    ), f"images directory: {train_label_path} does not exist."
+    assert os.path.exists(
+        val_label_path
+    ), f"images directory: {val_label_path} does not exist."
+
+    return train_images_dir, train_label_path, val_images_dir, val_label_path
