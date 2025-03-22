@@ -130,6 +130,7 @@ def main(args):
             "mAP5095",
             "learning_rate",
         ]
+
         tb_writer.add_scalar(tags[0], train_loss, epoch)
         tb_writer.add_scalar(tags[1], stats["precision"], epoch)
         tb_writer.add_scalar(tags[2], stats["recall"], epoch)

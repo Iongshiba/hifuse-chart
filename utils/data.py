@@ -2,6 +2,9 @@ import os
 import json
 import random
 
+import torch.functional as F
+import torchvision.transforms as T
+
 
 def read_train_data_classification(root: str):
     random.seed(0)
@@ -161,3 +164,45 @@ def read_data_detection_coco(root: str):
     ), f"images directory: {val_label_path} does not exist."
 
     return train_images_dir, train_label_path, val_images_dir, val_label_path
+
+
+class DetectionTransform:
+    def __init__(self, image_transforms):
+        self.image_transforms = image_transforms
+
+    def __call__(self, image, target):
+        orig_width, orig_height = image.size
+
+        image = self.image_transforms(image)
+
+        if target and "boxes" in target:
+            target["boxes"][:, [0, 2]] /= orig_width
+            target["boxes"][:, [1, 3]] /= orig_height
+
+        return image, target
+
+
+def make_coco_transforms(image_set, img_size):
+
+    normalize = T.Compose(
+        [T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])]
+    )
+
+    # scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+
+    if image_set == "train":
+        return T.Compose(
+            [
+                T.RandomHorizontalFlip(),
+                T.Resize(img_size),
+                normalize,
+            ]
+        )
+
+    if image_set == "val":
+        return T.Compose(
+            [
+                T.Resize(img_size),
+                normalize,
+            ]
+        )
