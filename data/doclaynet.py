@@ -105,7 +105,7 @@ class COCODataset(Dataset):
         anns = self._get_label(img_item["id"])
         if len(anns) == 0:
             label = {
-                "labels": torch.as_tensor([self.num_classes], dtype=torch.int64),
+                "labels": torch.as_tensor([0], dtype=torch.int64),
                 "boxes": torch.zeros(1, 4, dtype=torch.float32),
             }
         else:
@@ -117,7 +117,7 @@ class COCODataset(Dataset):
             }
 
         if self.transform is not None:
-            img = self.transform(img)
+            img, label = self.transform(img, label)
 
         return img, label, img_item
 
@@ -144,7 +144,6 @@ class COCODataset(Dataset):
 
             x_center = x_min + width / 2
             y_center = y_min + height / 2
-            # Append the box as a tuple
             boxes.append([class_id, x_center, y_center, width, height])
 
         return boxes
