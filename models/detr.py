@@ -287,12 +287,14 @@ class SetCriterion(nn.Module):
         num_classes,
         weight_dict={"ce_coeff": 1.0, "l1_coeff": 5.0, "giou_coeff": 2.0},
         non_object_coeff=0.1,
+        non_object_index=0,
     ):
         super().__init__()
         self.matcher = HungarianMatcher()
+        self.non_obj_idx = non_object_index
         self.num_classes = num_classes
         cross_entropy_weight = torch.ones(num_classes + 1)
-        cross_entropy_weight[-1] = non_object_coeff
+        cross_entropy_weight[non_object_index] = non_object_coeff
         self.weight_dict = weight_dict
         self.register_buffer("cross_entropy_weight", cross_entropy_weight)
 
@@ -306,7 +308,7 @@ class SetCriterion(nn.Module):
         # create [batch_size, num_queries]
         tgt_classes = torch.full(
             src_logits.shape[:2],
-            self.num_classes,
+            self.non_obj_idx,
             dtype=torch.int64,
             device=src_logits.device,
         )
@@ -384,7 +386,7 @@ class SetCriterion(nn.Module):
     def _get_object_mask(self, targets, indices):
         tgt_label = torch.cat([t["labels"][i] for t, (_, i) in zip(targets, indices)])
 
-        return tgt_label != self.num_classes
+        return tgt_label != self.non_obj_idx
 
     def forward(self, outputs, targets):
         indices = self.matcher(outputs, targets)
