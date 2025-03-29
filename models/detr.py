@@ -53,7 +53,7 @@ class DETR(nn.Module):
 
         self.encoder = TransformerEncoder(self.encoder_layer, encoder_num)
         self.decoder = TransformerDecoder(
-            self.decoder_layer, decoder_num, nn.LayerNorm(hidden_dim)
+            self.decoder_layer, decoder_num, nn.LayerNorm(hidden_dim), aux_loss
         )
 
         ###### Loss Setting ######
@@ -105,8 +105,8 @@ class DETR(nn.Module):
     def _get_aux_loss(self, out_class, out_bbox):
         return [
             {
-                f"pred_logits_{i}": c,
-                f"pred_boxes_{i}": b,
+                f"pred_logits": c,
+                f"pred_boxes": b,
             }
             for i, (c, b) in enumerate(zip(out_class[:-1], out_bbox[:-1]))
         ]
