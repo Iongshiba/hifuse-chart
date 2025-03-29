@@ -22,6 +22,7 @@ class DETR(nn.Module):
         encoder_num: int = 6,
         decoder_num: int = 6,
         temperature: int = 10000,
+        aux_loss: bool = True,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -29,6 +30,7 @@ class DETR(nn.Module):
         self.num_queries = num_queries
         self.hidden_dim = hidden_dim
         self.temperature = temperature
+        self.aux_loss = aux_loss
 
         self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
         # 4 is the number of coords in a bounding box
@@ -100,6 +102,15 @@ class DETR(nn.Module):
 
         return pos
 
+    def _get_aux_loss(self, out_class, out_bbox):
+        return [
+            {
+                f"pred_logits_{i}": c,
+                f"pred_boxes_{i}": b,
+            }
+            for i, (c, b) in enumerate(zip(out_class[:-1], out_bbox[:-1]))
+        ]
+
     def forward(self, x):
         x = torch.cat(x, dim=1)
         B, C, H, W = x.shape
@@ -121,13 +132,13 @@ class DETR(nn.Module):
         target = torch.zeros_like(query_embed)
         output = self.decoder(target, memory, pos_embed, query_embed)
 
-        # [num_queries, batch_size, hidden_dim]
+        # [intermediate, num_queries, batch_size, hidden_dim]
         # print(output.shape)
 
-        # [batch_size, num_queries, num_classes + 1]
-        # [batch_size, num_queries, 4]
-        out_class = self.class_embed(output).permute(1, 0, 2)
-        out_bbox = self.bbox_embed(output).sigmoid().permute(1, 0, 2)
+        # [intermediate, batch_size, num_queries, num_classes + 1]
+        # [intermediate, batch_size, num_queries, 4]
+        out_class = self.class_embed(output).permute(0, 2, 1, 3)
+        out_bbox = self.bbox_embed(output).sigmoid().permute(0, 2, 1, 3)
 
         # targets = [
         #     {
@@ -151,9 +162,12 @@ class DETR(nn.Module):
         #     }
         # ]
         outputs = {
-            "pred_logits": out_class,
-            "pred_boxes": out_bbox,
+            "pred_logits": out_class[-1],
+            "pred_boxes": out_bbox[-1],
         }
+
+        if self.aux_loss:
+            outputs["aux_outputs"] = self._get_aux_loss(out_class, out_bbox)
 
         # criterion = SetCriterion(1)
         # loss = criterion(outputs, targets)
@@ -180,21 +194,31 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, decoder_layer, num_layers, norm=None):
+    def __init__(self, decoder_layer, num_layers, norm=None, aux_loss=False):
         super().__init__()
         self.layers = get_clones(decoder_layer, num_layers)
         self.norm = norm
+        self.aux_loss = aux_loss
 
     def forward(self, x, memory, pos_embed, query_embed):
         output = x
+        intermediate = []
 
         for layer in self.layers:
             output = layer(output, memory, pos_embed, query_embed)
+            if self.aux_loss:
+                intermediate.append(self.norm(output))
 
         if self.norm:
             output = self.norm(output)
+            if self.aux_loss:
+                intermediate.pop()
+                intermediate.append(output)
 
-        return output
+        if self.aux_loss:
+            return torch.stack(intermediate)
+
+        return output.unsqueeze(0)
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -394,6 +418,18 @@ class SetCriterion(nn.Module):
         loss = {}
         loss.update(self.loss_boxes(outputs, targets, indices))
         loss.update(self.loss_labels(outputs, targets, indices))
+
+        # handle auxiliary losses
+        if "aux_outputs" in outputs:
+            for i, aux_outputs in enumerate(outputs["aux_outputs"]):
+                indices = self.matcher(aux_outputs, targets)
+
+                aux_loss = {}
+                aux_loss.update(self.loss_boxes(aux_outputs, targets, indices))
+                aux_loss.update(self.loss_labels(aux_outputs, targets, indices))
+                aux_loss = {k + f"_{i}": v for k, v in aux_loss.items()}
+
+                loss.update(aux_loss)
 
         # loss = {
         #     "l1_loss": (1),

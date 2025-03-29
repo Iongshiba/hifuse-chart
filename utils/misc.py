@@ -97,6 +97,7 @@ def confusion_matrix(x, y, num_classes):
     return matrix
 
 
+
 def plot_data_loader_image(data_loader):
     batch_size = data_loader.batch_size
     plot_num = min(batch_size, 4)
