@@ -48,6 +48,9 @@ def TriFuse_Base(num_classes: int, head: str = "detr"):
 
 
 def create_dataset(args):
+    train_dataset = None
+    val_dataset = None
+
     if args.data == "yolo":
         train_images_path, train_images_label, val_images_path, val_images_label = (
             read_data_detection_yolo(args.root_data_path)
