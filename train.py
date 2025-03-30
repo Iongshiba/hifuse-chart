@@ -4,6 +4,10 @@ import argparse
 
 import torch.optim as optim
 
+from torch.distributed import init_process_group, destroy_process_group
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from utils.build import (
     TriFuse_Tiny,
@@ -22,14 +26,30 @@ def main(args):
     tb_writer = SummaryWriter()
     ### TODO: Check Checkpoint Folder
 
-    print(args)
-    print(
-        'Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/'
-    )
     assert torch.cuda.is_available(), "Training on CPU is not supported"
     device = torch.device("cuda")
 
-    tb_writer = SummaryWriter()
+    ###########################
+    ##                       ##
+    ##    Data Paralleism    ##
+    ##                       ##
+    ###########################
+
+    local_rank = int(os.environ["LOCAL_RANK"])
+    global_rank = int(os.environ["RANK"])
+
+    assert local_rank != -1, "LOCAL_RANK environment variable not set"
+    assert global_rank != -1, "RANK environment variable not set"
+
+    init_process_group(backend="nccl")
+    torch.cuda.set_device(local_rank)
+    print(f"GPU {local_rank} - Using device: {device}")
+
+    ###################
+    ##               ##
+    ##    Dataset    ##
+    ##               ##
+    ###################
 
     batch_size = args.batch_size
     nw = min(
@@ -39,16 +59,17 @@ def main(args):
 
     train_dataset, val_dataset = create_dataset(args)
 
-    train_loader = torch.utils.data.DataLoader(
+    train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=False,
         pin_memory=True,
         num_workers=nw,
         collate_fn=train_dataset.collate_fn,
+        sampler=DistributedSampler(train_dataset, shuffle=True),
     )
 
-    val_loader = torch.utils.data.DataLoader(
+    val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
@@ -64,6 +85,7 @@ def main(args):
     #################
 
     model = TriFuse_Tiny(num_classes=args.num_classes).to(device)
+    model = DistributedDataParallel(model, device_ids=[local_rank])
     criterion = create_criterion(num_classees=args.num_classes, head=args.head).to(
         device
     )
@@ -128,56 +150,58 @@ def main(args):
         )
 
         # validate
-        stats = evaluate(
-            model=model,
-            dataloader=val_loader,
-            criterion=criterion,
-            device=device,
-            epoch=epoch,
-        )
-
-        tags = [
-            "train_loss",
-            "precision",
-            "recall",
-            "mAP50",
-            "mAP5095",
-            "learning_rate",
-        ]
-
-        tb_writer.add_scalar(tags[0], train_loss, epoch)
-        tb_writer.add_scalar(tags[1], stats["precision"], epoch)
-        tb_writer.add_scalar(tags[2], stats["recall"], epoch)
-        tb_writer.add_scalar(tags[3], stats["mAP50"], epoch)
-        tb_writer.add_scalar(tags[4], stats["mAP5095"], epoch)
-        tb_writer.add_scalar(tags[5], optimizer.param_groups[0]["lr"], epoch)
-
-        if best_map < stats["mAP5095"]:
-            if not os.path.isdir("./model_weight"):
-                os.mkdir("./model_weight")
-            torch.save(model.state_dict(), "./model_weight/best_model.pth")
-            print("Saved epoch{} as new best model".format(epoch))
-            best_map = stats["mAP5095"]
-
-        if epoch % 10 == 0:
-            print("epoch:", epoch)
-            print("learning rate:", optimizer.state_dict()["param_groups"][0]["lr"])
-            checkpoint = {
-                "net": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch,
-                "lr_schedule": lr_scheduler.state_dict(),
-            }
-            if not os.path.isdir("./model_weight/checkpoint"):
-                os.mkdir("./model_weight/checkpoint")
-            torch.save(
-                checkpoint, "./model_weight/checkpoint/ckpt_best_%s.pth" % (str(epoch))
+        if local_rank == 0:
+            stats = evaluate(
+                model=model,
+                dataloader=val_loader,
+                criterion=criterion,
+                device=device,
+                epoch=epoch,
             )
 
-        # add loss, acc and lr into tensorboard
-        print(
-            f"[epoch {epoch}] precision: {stats['precision']:.2f} recall: {stats['recall']:.2f} mAP@.5: {stats['mAP50']:.2f} mAP@[.5:.95]: {stats['mAP5095']:.2f}"
-        )
+            tags = [
+                "train_loss",
+                "precision",
+                "recall",
+                "mAP50",
+                "mAP5095",
+                "learning_rate",
+            ]
+
+            tb_writer.add_scalar(tags[0], train_loss, epoch)
+            tb_writer.add_scalar(tags[1], stats["precision"], epoch)
+            tb_writer.add_scalar(tags[2], stats["recall"], epoch)
+            tb_writer.add_scalar(tags[3], stats["mAP50"], epoch)
+            tb_writer.add_scalar(tags[4], stats["mAP5095"], epoch)
+            tb_writer.add_scalar(tags[5], optimizer.param_groups[0]["lr"], epoch)
+
+            if best_map < stats["mAP5095"]:
+                if not os.path.isdir("./model_weight"):
+                    os.mkdir("./model_weight")
+                torch.save(model.state_dict(), "./model_weight/best_model.pth")
+                print("Saved epoch{} as new best model".format(epoch))
+                best_map = stats["mAP5095"]
+
+            if epoch % 10 == 0:
+                print("epoch:", epoch)
+                print("learning rate:", optimizer.state_dict()["param_groups"][0]["lr"])
+                checkpoint = {
+                    "net": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "epoch": epoch,
+                    "lr_schedule": lr_scheduler.state_dict(),
+                }
+                if not os.path.isdir("./model_weight/checkpoint"):
+                    os.mkdir("./model_weight/checkpoint")
+                torch.save(
+                    checkpoint,
+                    "./model_weight/checkpoint/ckpt_best_%s.pth" % (str(epoch)),
+                )
+
+            # add loss, acc and lr into tensorboard
+            print(
+                f"[epoch {epoch}] precision: {stats['precision']:.2f} recall: {stats['recall']:.2f} mAP@.5: {stats['mAP50']:.2f} mAP@[.5:.95]: {stats['mAP5095']:.2f}"
+            )
 
     total = sum([param.nelement() for param in model.parameters()])
     print("Number of parameters: %.2fM" % (total / 1e6))
