@@ -12,14 +12,15 @@ from pycocotools.cocoeval import COCOeval
 
 
 def train_one_epoch(
-    model, optimizer, dataloader, criterion, device, epoch, lr_scheduler
+    model, optimizer, dataloader, criterion, device, epoch, lr_scheduler, local_rank
 ):
+    torch.cuda.empty_cache()
     model.train()
     accu_loss = torch.zeros(1).to(device)
     optimizer.zero_grad()
 
     sample_num = 0
-    bar = tqdm(dataloader, file=sys.stdout)
+    bar = tqdm(dataloader, file=sys.stdout, disable=local_rank != 0)
     for step, data in enumerate(bar):
         images, anns, _ = data
         images = images.to(device)
@@ -33,7 +34,7 @@ def train_one_epoch(
         loss.backward()
         accu_loss += loss
 
-        bar.desc = f"[Train Epoch {epoch}] Loss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]['lr']:.6f}"
+        bar.desc = f"[Train Epoch {epoch} on rank {local_rank}] Loss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]['lr']:.6f}"
         if not torch.isfinite(loss):
             print("WARNING: non-finite loss, ending training ", loss)
             sys.exit(1)
@@ -69,6 +70,8 @@ def evaluate(model, dataloader, criterion, device, epoch):
         # gt_labels.append([t["labels"] for t in anns])
         # gt_bboxes.append([t["boxes"] for t in anns])
 
+    ### VALIDATE ###
+
     out_logits = torch.cat(out_logits, dim=0)
     out_bboxes = torch.cat(out_bboxes, dim=0)
 
@@ -82,6 +85,7 @@ def evaluate(model, dataloader, criterion, device, epoch):
     img_h, img_w = images_coco[0]["height"], images_coco[0]["width"]
     scale_fct = torch.tensor([img_w, img_h, img_w, img_h], device=out_bboxes.device)
     boxes = boxes * scale_fct[None, None, :]
+
     ### EVALUATION WITH PYCOCOTOOLS ###
 
     predictions = [
