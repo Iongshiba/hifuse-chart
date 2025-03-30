@@ -1,9 +1,6 @@
 import os
-
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-
-import argparse
 import torch
+import argparse
 
 import torch.optim as optim
 
@@ -15,17 +12,22 @@ from utils.build import (
     create_criterion,
     create_dataset,
 )
+from utils.misc import check_model_memory
 from utils.engine import train_one_epoch, evaluate
+
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 
 def main(args):
-    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
-    print(f"using {device} device.")
+    tb_writer = SummaryWriter()
+    ### TODO: Check Checkpoint Folder
 
     print(args)
     print(
         'Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/'
     )
+    assert torch.cuda.is_available(), "Training on CPU is not supported"
+    device = torch.device("cuda")
 
     tb_writer = SummaryWriter()
 
@@ -55,10 +57,29 @@ def main(args):
         collate_fn=val_dataset.collate_fn,
     )
 
+    #################
+    ##             ##
+    ##    Model    ##
+    ##             ##
+    #################
+
     model = TriFuse_Tiny(num_classes=args.num_classes).to(device)
     criterion = create_criterion(num_classees=args.num_classes, head=args.head).to(
         device
     )
+    check_model_memory(model, criterion, val_loader)
+    # pg = [p for p in model.parameters() if p.requires_grad]
+    pg = get_params_groups(model, weight_decay=args.wd)
+    optimizer = optim.AdamW(pg, lr=args.lr, weight_decay=args.wd)
+    lr_scheduler = create_lr_scheduler(
+        optimizer, len(train_loader), args.epochs, warmup=True, warmup_epochs=1
+    )
+
+    ####################
+    ##                ##
+    ##    Training    ##
+    ##                ##
+    ####################
 
     if args.RESUME == False:
         if args.weights != "":
@@ -80,13 +101,6 @@ def main(args):
                 para.requires_grad_(False)
             else:
                 print("training {}".format(name))
-
-    # pg = [p for p in model.parameters() if p.requires_grad]
-    pg = get_params_groups(model, weight_decay=args.wd)
-    optimizer = optim.AdamW(pg, lr=args.lr, weight_decay=args.wd)
-    lr_scheduler = create_lr_scheduler(
-        optimizer, len(train_loader), args.epochs, warmup=True, warmup_epochs=1
-    )
 
     best_map = -1.0
     start_epoch = 0
@@ -188,10 +202,8 @@ if __name__ == "__main__":
     parser.add_argument("--weights", type=str, default="", help="initial weights path")
 
     parser.add_argument("--freeze-layers", type=bool, default=False)
-    parser.add_argument(
-        "--device", default="cuda:0", help="device id (i.e. 0 or 0,1 or cpu)"
-    )
 
     opt = parser.parse_args()
+    print(opt)
 
     main(opt)
