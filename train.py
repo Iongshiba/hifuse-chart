@@ -41,7 +41,7 @@ def main(args):
     assert local_rank != -1, "LOCAL_RANK environment variable not set"
     assert global_rank != -1, "RANK environment variable not set"
 
-    init_process_group(backend="nccl")
+    init_process_group(backend="gloo")
     torch.cuda.set_device(local_rank)
     print(f"GPU {local_rank} - Using device: {device}")
 
