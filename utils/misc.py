@@ -97,7 +97,6 @@ def confusion_matrix(x, y, num_classes):
     return matrix
 
 
-
 def plot_data_loader_image(data_loader):
     batch_size = data_loader.batch_size
     plot_num = min(batch_size, 4)
@@ -120,3 +119,30 @@ def plot_data_loader_image(data_loader):
             plt.yticks([])
             plt.imshow(img.astype("uint8"))
         plt.show()
+
+
+def check_model_memory(model, criterion, dataloader):
+    torch.cuda.empty_cache()
+    initial_mem = torch.cuda.memory_allocated()
+
+    img, anns, _ = next(iter(dataloader))
+    anns = [{k: v.cuda() for k, v in t.items()} for t in anns]
+
+    outputs = model(img.cuda())
+
+    peak_mem_forward = torch.cuda.max_memory_allocated()
+
+    losses = criterion(outputs, anns)
+    loss = sum(losses.values())
+    loss.backward()
+
+    peak_mem_total = torch.cuda.max_memory_reserved()
+
+    print(f"Initial Memory: {initial_mem / 1e9:.2f} GB")
+    print(f"Model + Activations: ~{peak_mem_forward / 1e9:.2f} GB")
+    print(
+        f"Model + Activations + Gradients + Optimizer: ~{peak_mem_total / 1e9:.2f} GB"
+    )
+    print(
+        f"Total GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB"
+    )
