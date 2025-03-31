@@ -235,7 +235,7 @@ if __name__ == "__main__":
     parser.add_argument("--weights", type=str, default="", help="initial weights path")
 
     parser.add_argument("--freeze-layers", type=bool, default=False)
-    parser.add_argument("--distributed", type=bool, default=False)
+    parser.add_argument("--distributed", action="store_true")
 
     opt = parser.parse_args()
     print(opt)
