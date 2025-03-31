@@ -26,8 +26,7 @@ def main(args):
     tb_writer = SummaryWriter()
     ### TODO: Check Checkpoint Folder
 
-    assert torch.cuda.is_available(), "Training on CPU is not supported"
-    device = torch.device("cuda")
+    distributed = args.distributed
 
     ###########################
     ##                       ##
@@ -35,15 +34,18 @@ def main(args):
     ##                       ##
     ###########################
 
-    local_rank = int(os.environ["LOCAL_RANK"])
-    global_rank = int(os.environ["RANK"])
+    if distributed:
+        local_rank = int(os.environ["LOCAL_RANK"])
+        global_rank = int(os.environ["RANK"])
 
-    assert local_rank != -1, "LOCAL_RANK environment variable not set"
-    assert global_rank != -1, "RANK environment variable not set"
+        assert local_rank != -1, "LOCAL_RANK environment variable not set"
+        assert global_rank != -1, "RANK environment variable not set"
+        assert torch.cuda.is_available(), "Training on CPU is not supported"
 
-    init_process_group(backend="gloo")
-    torch.cuda.set_device(local_rank)
-    print(f"GPU {local_rank} - Using device: {device}")
+        init_process_group(backend="gloo")
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda")
+        print(f"GPU {local_rank} - Using device: {device}")
 
     ###################
     ##               ##
@@ -66,7 +68,9 @@ def main(args):
         pin_memory=True,
         num_workers=nw,
         collate_fn=train_dataset.collate_fn,
-        sampler=DistributedSampler(train_dataset, shuffle=True),
+        sampler=(
+            DistributedSampler(train_dataset, shuffle=True) if distributed else None
+        ),
     )
 
     val_loader = DataLoader(
@@ -85,7 +89,11 @@ def main(args):
     #################
 
     model = TriFuse_Tiny(num_classes=args.num_classes).to(device)
-    model = DistributedDataParallel(model, device_ids=[local_rank])
+    model = (
+        DistributedDataParallel(model, device_ids=[local_rank])
+        if distributed
+        else model
+    )
     criterion = create_criterion(num_classees=args.num_classes, head=args.head).to(
         device
     )
@@ -151,7 +159,7 @@ def main(args):
         )
 
         # validate
-        if local_rank == 0:
+        if local_rank == 0 or not distributed:
             stats = evaluate(
                 model=model,
                 dataloader=val_loader,
@@ -227,6 +235,7 @@ if __name__ == "__main__":
     parser.add_argument("--weights", type=str, default="", help="initial weights path")
 
     parser.add_argument("--freeze-layers", type=bool, default=False)
+    parser.add_argument("--distributed", type=bool, default=False)
 
     opt = parser.parse_args()
     print(opt)
