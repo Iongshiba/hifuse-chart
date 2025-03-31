@@ -42,7 +42,7 @@ def main(args):
         local_rank = int(os.environ["LOCAL_RANK"])
         global_rank = int(os.environ["RANK"])
 
-        init_process_group(backend="gloo")
+        init_process_group(backend="nccl")
     else:
         local_rank = 0
         global_rank = 0
@@ -164,11 +164,11 @@ def main(args):
             device=device,
             epoch=epoch,
             lr_scheduler=lr_scheduler,
-            local_rank=local_rank if distributed else 0,
+            global_rank=global_rank if distributed else 0,
         )
 
         # validate
-        if local_rank == 0 or not distributed:
+        if global_rank == 0 or not distributed:
             stats = evaluate(
                 model=model,
                 dataloader=val_loader,

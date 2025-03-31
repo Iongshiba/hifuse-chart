@@ -12,7 +12,7 @@ from pycocotools.cocoeval import COCOeval
 
 
 def train_one_epoch(
-    model, optimizer, dataloader, criterion, device, epoch, lr_scheduler, local_rank
+    model, optimizer, dataloader, criterion, device, epoch, lr_scheduler, global_rank
 ):
     torch.cuda.empty_cache()
     model.train()
@@ -20,7 +20,7 @@ def train_one_epoch(
     optimizer.zero_grad()
 
     sample_num = 0
-    bar = tqdm(dataloader, file=sys.stdout, disable=local_rank != 0)
+    bar = tqdm(dataloader, file=sys.stdout, disable=global_rank != 0)
     for step, data in enumerate(bar):
         images, anns, _ = data
         images = images.to(device)
@@ -34,7 +34,7 @@ def train_one_epoch(
         loss.backward()
         accu_loss += loss
 
-        bar.desc = f"[Train Epoch {epoch} on rank {local_rank}] Loss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]['lr']:.6f}"
+        bar.desc = f"[Train Epoch {epoch}] Loss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]['lr']:.6f}"
         if not torch.isfinite(loss):
             print("WARNING: non-finite loss, ending training ", loss)
             sys.exit(1)
