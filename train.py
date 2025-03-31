@@ -34,18 +34,23 @@ def main(args):
     ##                       ##
     ###########################
 
+    assert torch.cuda.is_available(), "Training on CPU is not supported"
+
     if distributed:
         local_rank = int(os.environ["LOCAL_RANK"])
         global_rank = int(os.environ["RANK"])
 
-        assert local_rank != -1, "LOCAL_RANK environment variable not set"
-        assert global_rank != -1, "RANK environment variable not set"
-        assert torch.cuda.is_available(), "Training on CPU is not supported"
-
         init_process_group(backend="gloo")
-        torch.cuda.set_device(local_rank)
-        device = torch.device("cuda")
-        print(f"GPU {local_rank} - Using device: {device}")
+    else:
+        local_rank = 0
+        global_rank = 0
+
+    assert local_rank != -1, "LOCAL_RANK environment variable not set"
+    assert global_rank != -1, "RANK environment variable not set"
+
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda")
+    print(f"GPU {local_rank} - Using device: {device}")
 
     ###################
     ##               ##
