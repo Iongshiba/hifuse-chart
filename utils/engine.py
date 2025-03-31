@@ -48,7 +48,7 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate(model, dataloader, criterion, device, epoch):
+def evaluate(model, dataloader, device, epoch):
     model.eval()
     accu_loss = torch.zeros(1).to(device)
     out_logits = []
@@ -63,7 +63,7 @@ def evaluate(model, dataloader, criterion, device, epoch):
         anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
         sample_num += images.shape[0]
 
-        preds = model(images.to(device))
+        preds = model(images)
         out_logits.append(preds["pred_logits"])
         out_bboxes.append(preds["pred_boxes"])
         images_coco += item

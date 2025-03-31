@@ -219,8 +219,8 @@ def main(args):
                 f"[epoch {epoch}] precision: {stats['precision']:.2f} recall: {stats['recall']:.2f} mAP@.5: {stats['mAP50']:.2f} mAP@[.5:.95]: {stats['mAP5095']:.2f}"
             )
 
-    total = sum([param.nelement() for param in model.parameters()])
-    print("Number of parameters: %.2fM" % (total / 1e6))
+    # total = sum([param.nelement() for param in model.parameters()])
+    # print("Number of parameters: %.2fM" % (total / 1e6))
 
 
 if __name__ == "__main__":
