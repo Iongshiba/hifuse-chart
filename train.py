@@ -95,7 +95,9 @@ def main(args):
 
     model = TriFuse_Tiny(num_classes=args.num_classes).to(device)
     model = (
-        DistributedDataParallel(model, device_ids=[local_rank])
+        DistributedDataParallel(
+            model, device_ids=[local_rank], find_unused_parameters=True
+        )
         if distributed
         else model
     )
