@@ -5,6 +5,7 @@ import argparse
 import torch.optim as optim
 
 from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed.elastic.multiprocessing.errors import record
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
@@ -22,6 +23,7 @@ from utils.engine import train_one_epoch, evaluate
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 
+@record
 def main(args):
     tb_writer = SummaryWriter()
     ### TODO: Check Checkpoint Folder
@@ -170,7 +172,6 @@ def main(args):
             stats = evaluate(
                 model=model,
                 dataloader=val_loader,
-                criterion=criterion,
                 device=device,
                 epoch=epoch,
             )
