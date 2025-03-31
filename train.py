@@ -147,6 +147,7 @@ def main(args):
             device=device,
             epoch=epoch,
             lr_scheduler=lr_scheduler,
+            local_rank=local_rank if distributed else 0,
         )
 
         # validate
