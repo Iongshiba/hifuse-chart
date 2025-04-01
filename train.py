@@ -209,7 +209,7 @@ def main(args):
             # tb_writer.add_scalar(tags[4], stats["mAP5095"], epoch)
             # tb_writer.add_scalar(tags[5], optimizer.param_groups[0]["lr"], epoch)
 
-            if best_map < stats["mAP5095"]:
+            if best_map < stats["eval/mAP5095"]:
                 if not os.path.isdir("./model_weight"):
                     os.mkdir("./model_weight")
                 torch.save(model.state_dict(), "./model_weight/best_model.pth")
