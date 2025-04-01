@@ -12,7 +12,15 @@ from pycocotools.cocoeval import COCOeval
 
 
 def train_one_epoch(
-    model, optimizer, dataloader, criterion, device, epoch, lr_scheduler, global_rank
+    model,
+    optimizer,
+    dataloader,
+    criterion,
+    device,
+    epoch,
+    lr_scheduler,
+    global_rank,
+    logger,
 ):
     torch.cuda.empty_cache()
     model.train()
@@ -35,6 +43,9 @@ def train_one_epoch(
         accu_loss += loss
 
         bar.desc = f"[Train Epoch {epoch}] Loss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]['lr']:.6f}"
+        logger.log(
+            {"train/loss": loss.item(), "train/lr": optimizer.param_groups[0]["lr"]}
+        )
         if not torch.isfinite(loss):
             print("WARNING: non-finite loss, ending training ", loss)
             sys.exit(1)
@@ -67,6 +78,7 @@ def evaluate(model, dataloader, device, epoch):
         out_logits.append(preds["pred_logits"])
         out_bboxes.append(preds["pred_boxes"])
         images_coco += item
+
         # gt_labels.append([t["labels"] for t in anns])
         # gt_bboxes.append([t["boxes"] for t in anns])
 
@@ -118,10 +130,10 @@ def evaluate(model, dataloader, device, epoch):
     eval_coco.summarize()
 
     stats = {
-        "precision": avg_precision.item(),
-        "recall": avg_recall.item(),
-        "mAP50": eval_coco.stats[1].item(),
-        "mAP5095": eval_coco.stats[0].item(),
+        "eval/precision": avg_precision.item(),
+        "eval/recall": avg_recall.item(),
+        "eval/mAP50": eval_coco.stats[1].item(),
+        "eval/mAP5095": eval_coco.stats[0].item(),
     }
 
     print(
