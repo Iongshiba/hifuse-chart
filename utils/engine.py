@@ -22,7 +22,7 @@ def train_one_epoch(
     global_rank,
     logger,
     scaler,
-    map,
+    amp,
 ):
     torch.cuda.empty_cache()
     model.train()
@@ -36,7 +36,7 @@ def train_one_epoch(
         images = images.to(device)
         anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
 
-        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=map):
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
             preds = model(images)
             losses = criterion(preds, anns)
             loss = sum(losses.values())

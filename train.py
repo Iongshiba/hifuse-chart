@@ -124,7 +124,7 @@ def main(args):
         optimizer, len(train_loader), args.epochs, warmup=True, warmup_epochs=1
     )
     # Mixed Precision
-    scaler = torch.amp.GradScaler("cuda", enabled=args.map)
+    scaler = torch.cuda.amp.GradScaler("cuda", enabled=args.amp)
 
     ####################
     ##                ##
@@ -179,7 +179,7 @@ def main(args):
             global_rank=global_rank if args.distributed else 0,
             logger=logger,
             scaler=scaler,
-            map=args.map,
+            amp=args.amp,
         )
 
         # validate
@@ -265,7 +265,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--freeze-layers", type=bool, default=False)
     parser.add_argument("--distributed", action="store_true")
-    parser.add_argument("--map", action="store_true")
+    parser.add_argument("--amp", action="store_true")
 
     opt = parser.parse_args()
     print(opt)
