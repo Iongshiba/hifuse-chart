@@ -124,7 +124,7 @@ def main(args):
         optimizer, len(train_loader), args.epochs, warmup=True, warmup_epochs=1
     )
     # Mixed Precision
-    scaler = torch.cuda.amp.GradScaler("cuda", enabled=args.amp)
+    scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
 
     ####################
     ##                ##
