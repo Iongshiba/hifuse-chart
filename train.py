@@ -1,5 +1,6 @@
 import os
 import torch
+import wandb
 import argparse
 
 import torch.optim as optim
@@ -26,6 +27,14 @@ os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 @record
 def main(args):
     tb_writer = SummaryWriter()
+
+    wandb.login()
+    logger = wandb.init(project="trifuse", config=args)
+    logger.define_metric("eval/precision", summary="max")
+    logger.define_metric("eval/recall", summary="max")
+    logger.define_metric("eval/mAP50", summary="max")
+    logger.define_metric("eval/mAP5095", summary="max")
+
     ### TODO: Check Checkpoint Folder
 
     distributed = args.distributed
@@ -165,6 +174,7 @@ def main(args):
             epoch=epoch,
             lr_scheduler=lr_scheduler,
             global_rank=global_rank if distributed else 0,
+            logger=logger,
         )
 
         # validate
@@ -174,7 +184,10 @@ def main(args):
                 dataloader=val_loader,
                 device=device,
                 epoch=epoch,
+                logger=logger,
             )
+
+            logger.log(stats)
 
             tags = [
                 "train_loss",
@@ -200,8 +213,8 @@ def main(args):
                 best_map = stats["mAP5095"]
 
             if epoch % 10 == 0:
-                print("epoch:", epoch)
-                print("learning rate:", optimizer.state_dict()["param_groups"][0]["lr"])
+                # print("epoch:", epoch)
+                # print("learning rate:", optimizer.state_dict()["param_groups"][0]["lr"])
                 checkpoint = {
                     "net": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
@@ -216,9 +229,9 @@ def main(args):
                 )
 
             # add loss, acc and lr into tensorboard
-            print(
-                f"[epoch {epoch}] precision: {stats['precision']:.2f} recall: {stats['recall']:.2f} mAP@.5: {stats['mAP50']:.2f} mAP@[.5:.95]: {stats['mAP5095']:.2f}"
-            )
+            # print(
+            #     f"[epoch {epoch}] precision: {stats['precision']:.2f} recall: {stats['recall']:.2f} mAP@.5: {stats['mAP50']:.2f} mAP@[.5:.95]: {stats['mAP5095']:.2f}"
+            # )
 
     # total = sum([param.nelement() for param in model.parameters()])
     # print("Number of parameters: %.2fM" % (total / 1e6))
@@ -229,14 +242,18 @@ if __name__ == "__main__":
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--head", type=str, default="detr")
     parser.add_argument("--num-classes", type=int, default=1)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--wd", type=float, default=1e-2)
     parser.add_argument("--RESUME", type=bool, default=False)
 
-    parser.add_argument("--data", type=str, default="")
-    parser.add_argument("--root-data-path", type=str, default="")
+    parser.add_argument("--data", type=str, default="coco")
+    parser.add_argument(
+        "--root-data-path",
+        type=str,
+        default=r"D:\Dataset\doclaynet\doclaynet_yolo_dataset_v1\images",
+    )
     parser.add_argument("--train-data-path", type=str, default="")
     parser.add_argument("--val-data-path", type=str, default="")
 
