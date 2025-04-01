@@ -21,39 +21,38 @@ def train_one_epoch(
     lr_scheduler,
     global_rank,
     logger,
+    scaler,
+    map,
 ):
     torch.cuda.empty_cache()
     model.train()
+    criterion.train()
     accu_loss = torch.zeros(1).to(device)
     optimizer.zero_grad()
 
-    sample_num = 0
     bar = tqdm(dataloader, file=sys.stdout, disable=global_rank != 0)
     for step, data in enumerate(bar):
         images, anns, _ = data
         images = images.to(device)
         anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
-        sample_num += images.shape[0]
 
-        preds = model(images)
-        losses = criterion(preds, anns)
-        loss = sum(losses.values())
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=map):
+            preds = model(images)
+            losses = criterion(preds, anns)
+            loss = sum(losses.values())
 
-        loss.backward()
+        scaler.scale(loss).backward()
+
         accu_loss += loss
-
         bar.desc = f"[Train Epoch {epoch}] Loss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]['lr']:.6f}"
         logger.log(
             {"train/loss": loss.item(), "train/lr": optimizer.param_groups[0]["lr"]}
         )
-        if not torch.isfinite(loss):
-            print("WARNING: non-finite loss, ending training ", loss)
-            sys.exit(1)
 
-        optimizer.step()
-        optimizer.zero_grad()
-        # update lr
+        scaler.step(optimizer)
+        scaler.update()
         lr_scheduler.step()
+        optimizer.zero_grad()
 
     return accu_loss.item() / (step + 1)
 

@@ -123,6 +123,8 @@ def main(args):
     lr_scheduler = create_lr_scheduler(
         optimizer, len(train_loader), args.epochs, warmup=True, warmup_epochs=1
     )
+    # Mixed Precision
+    scaler = torch.amp.GradScaler("cuda", enabled=args.map)
 
     ####################
     ##                ##
@@ -176,6 +178,8 @@ def main(args):
             lr_scheduler=lr_scheduler,
             global_rank=global_rank if args.distributed else 0,
             logger=logger,
+            scaler=scaler,
+            map=args.map,
         )
 
         # validate
@@ -261,6 +265,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--freeze-layers", type=bool, default=False)
     parser.add_argument("--distributed", action="store_true")
+    parser.add_argument("--map", action="store_true")
 
     opt = parser.parse_args()
     print(opt)
