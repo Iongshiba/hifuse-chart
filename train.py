@@ -21,12 +21,10 @@ from utils.build import (
 from utils.misc import check_model_memory
 from utils.engine import train_one_epoch, evaluate
 
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-
 
 @record
 def main(args):
-    tb_writer = SummaryWriter()
+    # tb_writer = SummaryWriter()
 
     wandb.login()
     logger = wandb.init(project="trifuse", config=args)
@@ -35,9 +33,10 @@ def main(args):
     logger.define_metric("eval/mAP50", summary="max")
     logger.define_metric("eval/mAP5095", summary="max")
 
-    ### TODO: Check Checkpoint Folder
-
-    distributed = args.distributed
+    ### TODO: Distributed Training improve
+    ###         - Batch Normalization
+    ###         - Metric Broadcasting
+    ###         - Mixed Precision + Distributed Training
 
     ###########################
     ##                       ##
@@ -47,7 +46,7 @@ def main(args):
 
     assert torch.cuda.is_available(), "Training on CPU is not supported"
 
-    if distributed:
+    if args.distributed:
         local_rank = int(os.environ["LOCAL_RANK"])
         global_rank = int(os.environ["RANK"])
 
@@ -85,7 +84,9 @@ def main(args):
         num_workers=nw,
         collate_fn=train_dataset.collate_fn,
         sampler=(
-            DistributedSampler(train_dataset, shuffle=True) if distributed else None
+            DistributedSampler(train_dataset, shuffle=True)
+            if args.distributed
+            else None
         ),
     )
 
@@ -109,7 +110,7 @@ def main(args):
         DistributedDataParallel(
             model, device_ids=[local_rank], find_unused_parameters=True
         )
-        if distributed
+        if args.distributed
         else model
     )
     criterion = create_criterion(num_classees=args.num_classes, head=args.head).to(
@@ -173,12 +174,12 @@ def main(args):
             device=device,
             epoch=epoch,
             lr_scheduler=lr_scheduler,
-            global_rank=global_rank if distributed else 0,
+            global_rank=global_rank if args.distributed else 0,
             logger=logger,
         )
 
         # validate
-        if global_rank == 0 or not distributed:
+        if global_rank == 0 or not args.distributed:
             stats = evaluate(
                 model=model,
                 dataloader=val_loader,
@@ -209,7 +210,7 @@ def main(args):
                     os.mkdir("./model_weight")
                 torch.save(model.state_dict(), "./model_weight/best_model.pth")
                 print("Saved epoch{} as new best model".format(epoch))
-                best_map = stats["mAP5095"]
+                best_map = stats["eval/mAP5095"]
 
             if epoch % 10 == 0:
                 # print("epoch:", epoch)
