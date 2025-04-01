@@ -184,7 +184,6 @@ def main(args):
                 dataloader=val_loader,
                 device=device,
                 epoch=epoch,
-                logger=logger,
             )
 
             logger.log(stats)
