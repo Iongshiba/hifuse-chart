@@ -180,6 +180,7 @@ def main(args):
             logger=logger,
             scaler=scaler,
             amp=args.amp,
+            max_norm=args.max_norm,
         )
 
         # validate
@@ -250,6 +251,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--wd", type=float, default=1e-4)
+    parser.add_argument("--max_norm", type=float, default=0.1)
     parser.add_argument("--RESUME", type=bool, default=False)
 
     parser.add_argument("--data", type=str, default="coco")

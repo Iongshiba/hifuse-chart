@@ -23,6 +23,7 @@ def train_one_epoch(
     logger,
     scaler,
     amp,
+    max_norm,
 ):
     torch.cuda.empty_cache()
     model.train()
@@ -50,6 +51,11 @@ def train_one_epoch(
         )
 
         scaler.step(optimizer)
+
+        if max_norm > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        optimizer.step()
+
         scaler.update()
         lr_scheduler.step()
         optimizer.zero_grad()
