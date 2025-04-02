@@ -118,7 +118,7 @@ def main(args):
     )
     check_model_memory(model, criterion, val_loader)
     # pg = [p for p in model.parameters() if p.requires_grad]
-    pg = get_params_groups(model, weight_decay=args.wd)
+    pg = get_params_groups(model, weight_decay=args.wd, learning_rate=args.lr)
     optimizer = optim.AdamW(pg, lr=args.lr, weight_decay=args.wd)
     lr_scheduler = create_lr_scheduler(
         optimizer, len(train_loader), args.epochs, warmup=True, warmup_epochs=1
@@ -249,7 +249,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--wd", type=float, default=1e-2)
+    parser.add_argument("--wd", type=float, default=1e-4)
     parser.add_argument("--RESUME", type=bool, default=False)
 
     parser.add_argument("--data", type=str, default="coco")

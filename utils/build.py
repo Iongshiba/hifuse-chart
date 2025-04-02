@@ -1,4 +1,6 @@
+import json
 import math
+import copy
 import torch
 
 import torch.nn as nn
@@ -123,28 +125,51 @@ def create_lr_scheduler(
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=f)
 
 
-def get_params_groups(model: torch.nn.Module, weight_decay: float = 1e-5):
+def get_params_groups(
+    model: torch.nn.Module, weight_decay: float = 1e-5, learning_rate: float = 1e-4
+):
     parameter_group_vars = {
-        "decay": {"params": [], "weight_decay": weight_decay},
-        "no_decay": {"params": [], "weight_decay": 0.0},
+        "backbone_decay": {
+            "params": [],
+            "weight_decay": weight_decay,
+            "lr": learning_rate * 0.1,  # Lower LR for backbone
+        },
+        "backbone_no_decay": {
+            "params": [],
+            "weight_decay": 0.0,
+            "lr": learning_rate * 0.1,
+        },
+        "head_decay": {
+            "params": [],
+            "weight_decay": weight_decay,
+            "lr": learning_rate,  # Higher LR for head
+        },
+        "head_no_decay": {"params": [], "weight_decay": 0.0, "lr": learning_rate},
     }
 
-    parameter_group_names = {
-        "decay": {"params": [], "weight_decay": weight_decay},
-        "no_decay": {"params": [], "weight_decay": 0.0},
-    }
+    parameter_group_names = copy.deepcopy(parameter_group_vars)
 
     for name, param in model.named_parameters():
         if not param.requires_grad:
-            continue  # frozen weights
+            continue  # Skip frozen parameters
 
         if len(param.shape) == 1 or name.endswith(".bias"):
-            group_name = "no_decay"
+            decay_status = "no_decay"
         else:
-            group_name = "decay"
+            decay_status = "decay"
+
+        if "head" in name.lower():
+            section = "head"
+        else:
+            section = "backbone"
+
+        group_name = f"{section}_{decay_status}"
 
         parameter_group_vars[group_name]["params"].append(param)
         parameter_group_names[group_name]["params"].append(name)
 
-    # print("Param groups = %s" % json.dumps(parameter_group_names, indent=2))
+    # Save group names (optional)
+    # with open("parameter.json", "w") as file:
+    #     json.dump(parameter_group_names, file, indent=2)
+
     return list(parameter_group_vars.values())
