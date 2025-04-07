@@ -89,7 +89,7 @@ def create_dataset(args):
     return train_dataset, val_dataset
 
 
-def create_criterion(num_classees: int, head: str = "detr", **kwarg):
+def create_criterion(num_classees: int, head: str = "detr"):
     criterion = None
     if head == "detr":
         criterion = SetCriterion(num_classes=num_classees)

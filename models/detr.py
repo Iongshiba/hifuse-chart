@@ -37,7 +37,7 @@ class DETR(nn.Module):
         self.bbox_embed = MLP(
             in_channels=hidden_dim,
             hidden_channels=[hidden_dim, hidden_dim, 4],
-            activation_layer=nn.ReLU,
+            activation_layer=nn.GELU,
         )
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.input_proj = nn.Conv2d(in_channels, hidden_dim, kernel_size=1)
@@ -138,7 +138,8 @@ class DETR(nn.Module):
         # [intermediate, batch_size, num_queries, num_classes + 1]
         # [intermediate, batch_size, num_queries, 4]
         out_class = self.class_embed(output).permute(0, 2, 1, 3)
-        out_bbox = self.bbox_embed(output).sigmoid().permute(0, 2, 1, 3)
+        out_bbox = self.bbox_embed(output)
+        out_bbox = out_bbox.sigmoid().permute(0, 2, 1, 3)
 
         # targets = [
         #     {
@@ -236,7 +237,7 @@ class TransformerEncoderLayer(nn.Module):
             out_channels,
             [ffn_dim, out_channels],
             dropout=dropout,
-            activation_layer=nn.ReLU,
+            activation_layer=nn.GELU,
         )
         self.norm2 = nn.LayerNorm(out_channels)
         self.dropout2 = nn.Dropout(dropout)
@@ -277,7 +278,7 @@ class TransformerDecoderLayer(nn.Module):
             out_channels,
             [ffn_dim, out_channels],
             dropout=dropout,
-            activation_layer=nn.ReLU,
+            activation_layer=nn.GELU,
         )
         self.norm3 = nn.LayerNorm(out_channels)
         self.dropout3 = nn.Dropout(dropout)
