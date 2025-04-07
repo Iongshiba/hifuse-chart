@@ -115,6 +115,43 @@ class DETR(nn.Module):
             for i, (c, b) in enumerate(zip(out_class[:-1], out_bbox[:-1]))
         ]
 
+    def _init_weights_scaled_he(self, custom_gain_factor=2.0):
+        """
+        Applies He Normal initialization scaled by a custom factor.
+        """
+        for m in self.bbox_embed:
+            if isinstance(m, nn.Linear):
+                if hasattr(m, "weight") and m.weight is not None:
+                    # Calculate fan_in (number of input units)
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
+
+                    # Calculate standard He gain for ReLU
+                    standard_he_gain = nn.init.calculate_gain(
+                        "leaky_relu"
+                    )  # This is sqrt(2)
+
+                    # Apply the custom scaling factor
+                    effective_gain = standard_he_gain * custom_gain_factor
+
+                    # Calculate the desired standard deviation
+                    # stddev = effective_gain * sqrt(1 / fan_in) is equivalent to
+                    # stddev = sqrt( (effective_gain**2) / fan_in )
+                    # Note: Original He is sqrt(2/fan_in) which is gain*sqrt(1/fan_in)
+                    # So scaled version is custom_gain_factor * sqrt(2/fan_in)
+                    # OR effective_gain / sqrt(fan_in)
+
+                    std = effective_gain / math.sqrt(fan_in)
+
+                    # Initialize weights using basic normal distribution
+                    nn.init.normal_(m.weight, mean=0.0, std=std)
+                    print(
+                        f"Initialized layer with fan_in={fan_in}, custom_gain={effective_gain:.2f}, std={std:.4f}"
+                    )
+
+                # Initialize bias to zero (common practice)
+                if hasattr(m, "bias") and m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
     def forward(self, x):
         x = torch.cat(x, dim=1)
         B, C, H, W = x.shape

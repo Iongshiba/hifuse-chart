@@ -260,7 +260,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--wd", type=float, default=1e-4)
-    parser.add_argument("--max_norm", type=float, default=0.1)
+    parser.add_argument("--max-norm", type=float, default=0.1)
+    parser.add_argument("--he-gain", type=float, default=1.5)
     parser.add_argument("--RESUME", type=bool, default=False)
 
     parser.add_argument("--data", type=str, default="coco")
