@@ -6,8 +6,10 @@ import torch
 import pickle
 import numpy as np
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
 from PIL import Image
+from matplotlib.patches import Rectangle
 from torchvision.ops.boxes import box_area
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -89,36 +91,41 @@ def get_clones(module, num):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(num)])
 
 
-def confusion_matrix(x, y, num_classes):
-    indices = num_classes * y + x
-    matrix = torch.bincount(indices, minlength=num_classes**2).view(
-        num_classes, num_classes
-    )
-    return matrix
+def plot_bboxes_batch(
+    images, predicted_bboxes_batch, ground_truth_bboxes_batch, batch_size
+):
+    grid_size = int(
+        np.ceil(np.sqrt(batch_size))
+    )  # Determine the grid dimensions (square-like)
 
+    fig, axes = plt.subplots(grid_size, grid_size, figsize=(15, 15), squeeze=False)
+    axes = axes.flatten()
 
-def plot_data_loader_image(data_loader):
-    batch_size = data_loader.batch_size
-    plot_num = min(batch_size, 4)
+    for i in range(batch_size):
+        image = images[i]
+        predicted_bboxes = predicted_bboxes_batch[i]
+        ground_truth_bboxes = ground_truth_bboxes_batch[i]
 
-    json_path = "./class_indices.json"
-    assert os.path.exists(json_path), json_path + " does not exist."
-    json_file = open(json_path, "r")
-    class_indices = json.load(json_file)
+        ax = axes[i]
+        ax.imshow(image)
 
-    for data in data_loader:
-        images, labels = data
-        for i in range(plot_num):
-            # [C, H, W] -> [H, W, C]
-            img = images[i].numpy().transpose(1, 2, 0)
-            img = (img * [0.5, 0.5, 0.5] + [0.5, 0.5, 0.5]) * 255
-            label = labels[i].item()
-            plt.subplot(1, plot_num, i + 1)
-            plt.xlabel(class_indices[str(label)])
-            plt.xticks([])
-            plt.yticks([])
-            plt.imshow(img.astype("uint8"))
-        plt.show()
+        for gt_bbox in ground_truth_bboxes:
+            x, y, w, h = gt_bbox
+            rect = Rectangle((x, y), w, h, linewidth=2, edgecolor="g", facecolor="none")
+            ax.add_patch(rect)
+
+        for pred_bbox in predicted_bboxes:
+            x, y, w, h = pred_bbox
+            rect = Rectangle((x, y), w, h, linewidth=2, edgecolor="r", facecolor="none")
+            ax.add_patch(rect)
+
+        ax.axis("off")  # Turn off axis for better visualization
+
+    for i in range(batch_size, len(axes)):
+        axes[i].axis("off")
+
+    plt.tight_layout()
+    return fig
 
 
 def check_model_memory(model, criterion, dataloader):
