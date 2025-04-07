@@ -97,6 +97,7 @@ class COCODataset(Dataset):
 
     def __getitem__(self, item):
         img_item = self.annotations["images"][item]
+        img_item["file_path"] = os.path.join(self.image_dir, img_item["file_name"])
         img_path = os.path.join(self.image_dir, img_item["file_name"])
         img = Image.open(img_path)
         if img.mode != "RGB":

@@ -19,7 +19,7 @@ from utils.build import (
     create_dataset,
 )
 from utils.misc import check_model_memory
-from utils.engine import train_one_epoch, evaluate
+from utils.engine import train_one_epoch, evaluate, plot_img
 
 
 @record
@@ -203,6 +203,15 @@ def main(args):
                 "learning_rate",
             ]
 
+            plot_stats = plot_img(
+                model=model,
+                dataset=val_dataset,
+                device=device,
+                args=args,
+            )
+
+            logger.log(plot_stats)
+
             # tb_writer.add_scalar(tags[0], train_loss, epoch)
             # tb_writer.add_scalar(tags[1], stats["precision"], epoch)
             # tb_writer.add_scalar(tags[2], stats["recall"], epoch)
@@ -262,6 +271,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--train-data-path", type=str, default="")
     parser.add_argument("--val-data-path", type=str, default="")
+    parser.add_argument("--num-plot", type=int, default=4)
 
     parser.add_argument("--weights", type=str, default="", help="initial weights path")
 

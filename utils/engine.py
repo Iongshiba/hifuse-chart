@@ -6,7 +6,7 @@ import numpy as np
 
 from PIL import Image
 from tqdm import tqdm
-from utils.misc import box_cxcywh_to_xywh
+from utils.misc import box_cxcywh_to_xywh, plot_bboxes_batch
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
@@ -70,13 +70,11 @@ def evaluate(model, dataloader, device, epoch):
     out_bboxes = []
     images_coco = []
 
-    sample_num = 0
     bar = tqdm(dataloader, file=sys.stdout)
     for step, data in enumerate(bar):
         images, anns, item = data
         images = images.to(device)
         anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
-        sample_num += images.shape[0]
 
         preds = model(images)
         out_logits.append(preds["pred_logits"])
@@ -143,5 +141,40 @@ def evaluate(model, dataloader, device, epoch):
     print(
         f"[Val Epoch {epoch}]\tPrecision: {avg_precision.item()}\tRecall: {avg_recall.item()}\tmAP@.5: {eval_coco.stats[1].item()}\tmAP@[.5:.95]: {eval_coco.stats[0].item()}"
     )
+
+    return stats
+
+
+@torch.no_grad()
+def plot_img(model, dataset, device, args):
+    model.eval()
+    images = []
+    pd_boxes = []
+    gt_boxes = []
+
+    for i in range(args.num_plot):
+        image, ann, item = dataset[i]
+        image = image.to(device)
+        images.append(Image.open(item["file_path"]))
+        img_w, img_h = item["width"], item["height"]
+
+        pred = model(image.unsqueeze(0))
+
+        gt_box = box_cxcywh_to_xywh(ann["boxes"])
+        gt_box[:, [0, 1, 2, 3]] *= torch.tensor([img_w, img_h, img_w, img_h])
+        gt_boxes.append(gt_box)
+
+        pd_box = box_cxcywh_to_xywh(pred["pred_boxes"].squeeze().detach().cpu())
+        pd_box[:, [0, 1, 2, 3]] *= torch.tensor([img_w, img_h, img_w, img_h])
+        pd_boxes.append(pd_box)
+
+    stats = {
+        "image_with_bboxes": plot_bboxes_batch(
+            images,
+            pd_boxes,
+            gt_boxes,
+            args.num_plot,
+        ),
+    }
 
     return stats
