@@ -1,3 +1,4 @@
+import math
 import copy
 import torch
 
@@ -23,6 +24,7 @@ class DETR(nn.Module):
         decoder_num: int = 6,
         temperature: int = 10000,
         aux_loss: bool = True,
+        he_gain: float = 1.5,
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -37,7 +39,7 @@ class DETR(nn.Module):
         self.bbox_embed = MLP(
             in_channels=hidden_dim,
             hidden_channels=[hidden_dim, hidden_dim, 4],
-            activation_layer=nn.GELU,
+            activation_layer=nn.LeakyReLU,
         )
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.input_proj = nn.Conv2d(in_channels, hidden_dim, kernel_size=1)
@@ -55,6 +57,8 @@ class DETR(nn.Module):
         self.decoder = TransformerDecoder(
             self.decoder_layer, decoder_num, nn.LayerNorm(hidden_dim), aux_loss
         )
+
+        self._init_weights_scaled_he(he_gain)
 
         ###### Loss Setting ######
 
@@ -237,7 +241,7 @@ class TransformerEncoderLayer(nn.Module):
             out_channels,
             [ffn_dim, out_channels],
             dropout=dropout,
-            activation_layer=nn.GELU,
+            activation_layer=nn.LeakyReLU,
         )
         self.norm2 = nn.LayerNorm(out_channels)
         self.dropout2 = nn.Dropout(dropout)
@@ -278,7 +282,7 @@ class TransformerDecoderLayer(nn.Module):
             out_channels,
             [ffn_dim, out_channels],
             dropout=dropout,
-            activation_layer=nn.GELU,
+            activation_layer=nn.LeakyReLU,
         )
         self.norm3 = nn.LayerNorm(out_channels)
         self.dropout3 = nn.Dropout(dropout)

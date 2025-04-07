@@ -1,18 +1,13 @@
 import os
 import copy
-import json
-import glob
 import torch
 import pickle
 import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
-from PIL import Image
 from matplotlib.patches import Rectangle
 from torchvision.ops.boxes import box_area
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
 
 import torch.nn as nn
 import matplotlib.pyplot as plt

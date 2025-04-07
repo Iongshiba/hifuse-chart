@@ -826,9 +826,9 @@ class Global_block(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.shift_size = shift_size
-        assert 0 <= self.shift_size < self.window_size, (
-            "shift_size must in 0-window_size"
-        )
+        assert (
+            0 <= self.shift_size < self.window_size
+        ), "shift_size must in 0-window_size"
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
