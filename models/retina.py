@@ -273,7 +273,7 @@ class RetinaNet(nn.Module):
 
         # Convert images to ImageList
         original_image_sizes = [img.shape[-2:] for img in images]
-        image_list = ImageList(torch.stack(images), original_image_sizes)
+        image_list = ImageList(images, original_image_sizes)
 
         # Feed through RetinaNetHead to get logits
         cls_logits, bbox_pred = self.head(feature_maps)
