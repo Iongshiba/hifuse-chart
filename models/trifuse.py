@@ -6,7 +6,7 @@ import numpy as np
 from typing import Optional
 
 from models.detr import DETR
-from models.retina import Retina
+from models.retina import RetinaNet
 
 
 ##### Feature Pyramid Network Component #####
@@ -308,7 +308,7 @@ class TriFuse(nn.Module):
         ###### Detection Head Setting ######
 
         if head == "retina":
-            head = Retina(
+            head = RetinaNet(
                 num_classes=self.num_classes,
                 out_channels=256,
                 fuse_fm=fuse_fm,
@@ -424,7 +424,7 @@ class TriFuse(nn.Module):
 
         # return self.head(x_f)
 
-        if isinstance(self.head, Retina):
+        if isinstance(self.head, RetinaNet):
             if self.training:
                 assert targets is not None, "During training, targets must be provided!"
                 return self.head([x_1, x_2, x_3, x_4], imgs, targets)
