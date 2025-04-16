@@ -36,6 +36,8 @@ class RetinaNetHead(nn.Module):
         """
         super().__init__()
 
+        self.num_classes = num_classes
+
         # Classification subnet
         cls_subnet = []
         for _ in range(num_convs):
