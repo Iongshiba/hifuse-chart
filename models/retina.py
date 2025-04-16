@@ -219,6 +219,9 @@ class RetinaNet(nn.Module):
         # Num of classes
         self.num_classes = num_classes
 
+        # Fuse
+        self.fuse = nn.Conv2d(4 * out_channels, out_channels, kernel_size=1)
+
     def forward(
         self,
         feature_maps: list[Tensor],
