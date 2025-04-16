@@ -312,7 +312,6 @@ class TriFuse(nn.Module):
                 num_classes=self.num_classes,
                 out_channels=256,
                 fuse_fm=fuse_fm,
-                num_fm=4,
                 num_anchors=num_anchors,
             )
         elif head == "detr":
