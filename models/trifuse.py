@@ -6,7 +6,7 @@ import numpy as np
 from typing import Optional
 
 from models.detr import DETR
-from models.retina import Retina
+from retina import Retina
 
 
 ##### Feature Pyramid Network Component #####
