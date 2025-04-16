@@ -133,7 +133,7 @@ class RetinaNet(nn.Module):
         anchor_sizes: Tuple[Tuple[int, ...]] = None,
         aspect_ratios: List[Tuple[float, ...]] = None,
         # Other parameters
-        proposal_matcher: Optional[det_utils.Matcher] = None,
+        proposal_matcher: det_utils.Matcher = None,
         box_loss_weight: float = 1.0,
         focal_loss_alpha: float = 0.25,
         focal_loss_gamma: float = 2.0,
@@ -222,7 +222,7 @@ class RetinaNet(nn.Module):
         self,
         feature_maps: list[Tensor],
         images: List[Tensor],
-        targets: Optional[List[Dict[str, Tensor]]] = None,
+        targets: List[Dict[str, Tensor]] = None,
     ) -> Union[Dict[str, Tensor], List[Dict[str, Tensor]]]:
         """
         Forward pass
