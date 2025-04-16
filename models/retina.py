@@ -133,8 +133,6 @@ class RetinaNet(nn.Module):
         # Anchor parameters
         num_anchors: int = 9,
         anchor_generator: AnchorGenerator = None,
-        anchor_sizes: Tuple[Tuple[int, ...]] = None,
-        aspect_ratios: List[Tuple[float, ...]] = None,
         # Other parameters
         proposal_matcher: det_utils.Matcher = None,
         box_loss_weight: float = 1.0,
@@ -177,16 +175,14 @@ class RetinaNet(nn.Module):
 
         # Anchor generator
         if anchor_generator is None:
-            if anchor_sizes is None:
-                anchor_sizes = (
-                    (16, 32, 64),  # P1 (56x56)
-                    (32, 64, 128),  # P2 (28x28)
-                    (64, 128, 192),  # P3 (14x14)
-                    (128, 192, 224),  # P4 (7x7)
-                )
+            anchor_sizes = (
+                (16, 32, 64),  # P1 (56x56)
+                (32, 64, 128),  # P2 (28x28)
+                (64, 128, 192),  # P3 (14x14)
+                (128, 192, 224),  # P4 (7x7)
+            )
 
-            if aspect_ratios is None:
-                aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
+            aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
 
             anchor_generator = AnchorGenerator(
                 sizes=anchor_sizes,
