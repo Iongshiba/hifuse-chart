@@ -113,7 +113,7 @@ class RetinaNetHead(nn.Module):
         return torch.cat(cls_logits, dim=1), torch.cat(bbox_preds, dim=1)
 
 
-class Retina(nn.Module):
+class RetinaNet(nn.Module):
     """
     RetinaNet object detection model
 
