@@ -1,9 +1,10 @@
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import torch
 import torch.nn as nn
 from torch import Tensor
+import torch.nn.functional as F
 import torchvision.models.detection._utils as det_utils
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
@@ -275,7 +276,7 @@ class RetinaNet(nn.Module):
         cls_logits, bbox_pred = self.head(feature_maps)
 
         # Generate anchors for each feature map level
-        anchors = self.anchor_generator(image_list, features_maps)
+        anchors = self.anchor_generator(image_list, feature_maps)
 
         # If training, return losses
         if self.training:
