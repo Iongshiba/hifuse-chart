@@ -126,14 +126,11 @@ class RetinaNet(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        # Feature maps parameters
         in_channels_list: List[int] = None,
         out_channels: int = 256,
         fuse_fm: bool = False,
-        # Anchor parameters
         num_anchors: int = 9,
-        anchor_generator: AnchorGenerator = None,
-        # Other parameters
+        anchor_generator=None,
         proposal_matcher: det_utils.Matcher = None,
         box_loss_weight: float = 1.0,
         focal_loss_alpha: float = 0.25,
@@ -182,7 +179,7 @@ class RetinaNet(nn.Module):
                 (128, 192, 224),  # P4 (7x7)
             )
 
-            aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
+            aspect_ratios = ((0.5, 1.0, 2.0)) * len(anchor_sizes)
 
             anchor_generator = AnchorGenerator(
                 sizes=anchor_sizes,
@@ -393,7 +390,12 @@ class RetinaNet(nn.Module):
                 ]
 
                 # Set the corresponding class to 1 (one-hot encoding)
-                gt_classes_target[foreground_idxs_per_image, gt_classes_idxs] = 1.0
+                gt_classes_target[
+                    foreground_idxs_per_image,
+                    targets_per_image["labels"][
+                        matched_idxs_per_image[foreground_idxs_per_image]
+                    ],
+                ] = 1.0
 
             # Identify valid anchors (not between thresholds)
             valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHOLDS
@@ -460,7 +462,7 @@ class RetinaNet(nn.Module):
                 continue
 
             # Get ground truth boxes for foreground anchors
-            matched_gt_boxes = targets_per_image["boxes"][
+            matched_gt_boxes_per_image = targets_per_image["boxes"][
                 matched_idxs_per_image[foreground_idxs_per_image]
             ]
 
@@ -470,37 +472,26 @@ class RetinaNet(nn.Module):
             ]
             anchors_per_image = anchors_per_image[foreground_idxs_per_image, :]
 
-            # Encode ground truth boxes as targets for regression
-            # (convert from absolute coordinates to offsets relative to anchors)
-            target_regression = self.box_coder.encode(
-                matched_gt_boxes, anchors_per_image
+            # Compute loss based on specified regression loss type
+            losses.append(
+                det_utils._box_loss(
+                    self.bbox_reg_loss_type,
+                    self.box_coder,
+                    anchors_per_image,
+                    matched_gt_boxes_per_image,
+                    bbox_regression_per_image,
+                )
+                / max(1, num_foreground)
             )
 
-            # Compute loss based on specified regression loss type
-            if self.bbox_reg_loss_type == "smooth_l1":
-                loss = F.smooth_l1_loss(
-                    bbox_regression_per_image,
-                    target_regression,
-                    beta=1.0 / 9.0,  # As used in Faster R-CNN
-                    reduction="sum",
-                )
-            elif self.bbox_reg_loss_type == "giou":
-                # Decode predictions to boxes
-                pred_boxes = self.box_coder.decode(
-                    bbox_regression_per_image, anchors_per_image
-                )
-                loss = 1 - torch.diag(
-                    box_ops.generalized_box_iou(pred_boxes, matched_gt_boxes)
-                )
-                loss = loss.sum()
-            else:
-                raise ValueError(f"Invalid box loss type '{self.bbox_reg_loss_type}'")
-
-            # Normalize by number of foreground anchors
-            losses.append(loss / max(1, num_foreground))
-
         # Average loss across all images in batch
-        return torch.stack(losses).mean()
+        def _sum(x: List[Tensor]) -> Tensor:
+            res = x[0]
+            for i in x[1:]:
+                res = res + i
+            return res
+
+        return _sum(losses) / max(1, len(targets))
 
     def _inference(
         self,
