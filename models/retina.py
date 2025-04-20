@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 import torchvision.models.detection._utils as det_utils
+from torchvision.models.detection.retinanet import _sum
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
 from torchvision.ops import batched_nms
@@ -374,51 +375,40 @@ class RetinaNet(nn.Module):
         for targets_per_image, cls_logits_per_image, matched_idxs_per_image in zip(
             targets, cls_logits, matched_idxs
         ):
-            # Identify foreground (matched to a ground truth box)
+            cls_logits_per_image = cls_logits_per_image.view(
+                cls_logits_per_image.shape[1], -1
+            ).T
+
+            # determine only the foreground
             foreground_idxs_per_image = matched_idxs_per_image >= 0
             num_foreground = foreground_idxs_per_image.sum()
 
-            # Create one-hot encoded target tensor. Shape: [num_anchors, num_classes]
+            # create the target classification
             gt_classes_target = torch.zeros_like(cls_logits_per_image)
 
-            # Only set values for foreground anchors
-            if num_foreground > 0:
-                # Get ground truth labels for matched anchors
-                # matched_idxs_per_image[foreground_idxs_per_image] gives the indices of ground truth boxes that were matched to each foreground anchor
-                gt_classes_idxs = targets_per_image["labels"][
+            gt_classes_target[
+                foreground_idxs_per_image,
+                targets_per_image["labels"][
                     matched_idxs_per_image[foreground_idxs_per_image]
-                ]
+                ],
+            ] = 1.0
 
-                # Set the corresponding class to 1 (one-hot encoding)
-                gt_classes_target[
-                    foreground_idxs_per_image,
-                    targets_per_image["labels"][
-                        matched_idxs_per_image[foreground_idxs_per_image]
-                    ],
-                ] = 1.0
+            # find indices for which anchors should be ignored
+            valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHHOLDS
 
-            # Identify valid anchors (not between thresholds)
-            valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHOLDS
-
-            # Compute focal loss
-            if valid_idxs_per_image.sum() > 0:
-                losses.append(
-                    sigmoid_focal_loss(
-                        cls_logits_per_image[valid_idxs_per_image],
-                        gt_classes_target[valid_idxs_per_image],
-                        alpha=self.focal_loss_alpha,
-                        gamma=self.focal_loss_gamma,
-                        reduction="sum",
-                    )
-                    / max(
-                        1, num_foreground
-                    )  # Normalize by number of foreground anchors
+            # compute the class classification loss
+            losses.append(
+                sigmoid_focal_loss(
+                    cls_logits_per_image[valid_idxs_per_image],
+                    gt_classes_target[valid_idxs_per_image],
+                    alpha=alpha,
+                    gamma=gamma,
+                    reduction="sum",
                 )
-            else:
-                losses.append(cls_logits_per_image.sum() * 0)  # Empty loss
+                / max(1, num_foreground)
+            )
 
-        # Average loss across all images in batch
-        return torch.stack(losses).mean()
+        return _sum(losses) / len(targets)
 
     def _regression_loss(
         self,
@@ -448,48 +438,40 @@ class RetinaNet(nn.Module):
 
         for (
             targets_per_image,
-            bbox_regression_per_image,
+            bbox_reg_per_image,
             anchors_per_image,
             matched_idxs_per_image,
-        ) in zip(targets, bbox_regression, anchors, matched_idxs):
-            # Find foreground anchors
-            foreground_idxs_per_image = matched_idxs_per_image >= 0
-            num_foreground = foreground_idxs_per_image.sum()
+        ) in zip(targets, bbox_reg, anchors, matched_idxs):
+            # determine only the forground indices, ignore the rest
+            foreground_idxs_per_image = torch.where(matched_idxs_per_image >= 0)[0]
+            num_foreground = foreground_idxs_per_image.numel()
 
-            # Skip if no foreground anchors
-            if num_foreground == 0:
-                losses.append(bbox_regression_per_image.sum() * 0)
-                continue
-
-            # Get ground truth boxes for foreground anchors
+            # select only the foreground boxes
             matched_gt_boxes_per_image = targets_per_image["boxes"][
                 matched_idxs_per_image[foreground_idxs_per_image]
             ]
-
-            # Get predicted boxes for foreground anchors
-            bbox_regression_per_image = bbox_regression_per_image[
-                foreground_idxs_per_image, :
-            ]
+            bbox_reg_per_image = bbox_reg_per_image[foreground_idxs_per_image, :]
             anchors_per_image = anchors_per_image[foreground_idxs_per_image, :]
 
-            # Compute loss based on specified regression loss type
+            if matched_gt_boxes_per_image.numel() == 0:
+                matched_gt_boxes_per_image = torch.full(
+                    (1, 4),
+                    -1.0,
+                    dtype=torch.float32,
+                    device=matched_gt_boxes_per_image.device,
+                )
+
+            # compute the loss
             losses.append(
                 det_utils._box_loss(
-                    self.bbox_reg_loss_type,
+                    self.reg_loss_type,
                     self.box_coder,
                     anchors_per_image,
                     matched_gt_boxes_per_image,
-                    bbox_regression_per_image,
+                    bbox_reg_per_image,
                 )
                 / max(1, num_foreground)
             )
-
-        # Average loss across all images in batch
-        def _sum(x: List[Tensor]) -> Tensor:
-            res = x[0]
-            for i in x[1:]:
-                res = res + i
-            return res
 
         return _sum(losses) / max(1, len(targets))
 
