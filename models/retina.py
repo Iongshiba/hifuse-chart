@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 import torchvision.models.detection._utils as det_utils
+from torchvision.ops import clip_boxes_to_image
 from torchvision.models.detection.retinanet import _sum
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
@@ -174,13 +175,13 @@ class RetinaNet(nn.Module):
         # Anchor generator
         if anchor_generator is None:
             anchor_sizes = (
-                (16, 32, 64),  # P1 (56x56)
-                (32, 64, 128),  # P2 (28x28)
-                (64, 128, 192),  # P3 (14x14)
-                (128, 192, 224),  # P4 (7x7)
+                (14, 28, 56),  # P1 (56x56)
+                (28, 56, 112),  # P2 (28x28)
+                (56, 112, 224),  # P3 (14x14)
+                (112, 224, 448),  # P4 (7x7)
             )
 
-            aspect_ratios = ((0.5, 1.0, 2.0)) * len(anchor_sizes)
+            aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
 
             anchor_generator = AnchorGenerator(
                 sizes=anchor_sizes,
@@ -276,6 +277,10 @@ class RetinaNet(nn.Module):
 
         # Generate anchors for each feature map level
         anchors = self.anchor_generator(image_list, feature_maps)
+        anchors = [
+            clip_boxes_to_image(anchor, image_size)
+            for anchor, image_size in zip(anchors, image_list.image_sizes)
+        ]
 
         # If training, return losses
         if self.training:
@@ -394,15 +399,15 @@ class RetinaNet(nn.Module):
             ] = 1.0
 
             # find indices for which anchors should be ignored
-            valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHHOLDS
+            valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHOLDS
 
             # compute the class classification loss
             losses.append(
                 sigmoid_focal_loss(
                     cls_logits_per_image[valid_idxs_per_image],
                     gt_classes_target[valid_idxs_per_image],
-                    alpha=alpha,
-                    gamma=gamma,
+                    alpha=self.focal_loss_alpha,
+                    gamma=self.focal_loss_gamma,
                     reduction="sum",
                 )
                 / max(1, num_foreground)
@@ -441,7 +446,7 @@ class RetinaNet(nn.Module):
             bbox_reg_per_image,
             anchors_per_image,
             matched_idxs_per_image,
-        ) in zip(targets, bbox_reg, anchors, matched_idxs):
+        ) in zip(targets, bbox_regression, anchors, matched_idxs):
             # determine only the forground indices, ignore the rest
             foreground_idxs_per_image = torch.where(matched_idxs_per_image >= 0)[0]
             num_foreground = foreground_idxs_per_image.numel()
@@ -464,7 +469,7 @@ class RetinaNet(nn.Module):
             # compute the loss
             losses.append(
                 det_utils._box_loss(
-                    self.reg_loss_type,
+                    self.bbox_reg_loss_type,
                     self.box_coder,
                     anchors_per_image,
                     matched_gt_boxes_per_image,

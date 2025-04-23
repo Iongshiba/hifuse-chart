@@ -408,17 +408,27 @@ class TriFuse(nn.Module):
         x_p_2 = self.p3(x_p_3, x_f_2)
         x_p_1 = self.p2(x_p_2, x_f_1)
 
-        # print("Feature Pyramid Network")
-        # print(x_p_1.shape)
-        # print(x_p_2.shape)
-        # print(x_p_3.shape)
-        # print(x_p_4.shape)
+        print("Feature Pyramid Network")
+        print(x_p_1.shape)
+        print(x_p_2.shape)
+        print(x_p_3.shape)
+        print(x_p_4.shape)
 
         ###### Feature Fusion ######
-        x_4 = F.interpolate(x_p_4, scale_factor=8, mode="bilinear", align_corners=False)
-        x_3 = F.interpolate(x_p_3, scale_factor=4, mode="bilinear", align_corners=False)
-        x_2 = F.interpolate(x_p_2, scale_factor=2, mode="bilinear", align_corners=False)
+        # x_4 = F.interpolate(x_p_4, scale_factor=8, mode="bilinear", align_corners=False)
+        # x_3 = F.interpolate(x_p_3, scale_factor=4, mode="bilinear", align_corners=False)
+        # x_2 = F.interpolate(x_p_2, scale_factor=2, mode="bilinear", align_corners=False)
+        # x_1 = x_p_1
+        x_4 = x_p_4
+        x_3 = x_p_3
+        x_2 = x_p_2
         x_1 = x_p_1
+
+        # print("Feature maps") -> (B, 256, 56, 56)
+        # print(x_1.shape)
+        # print(x_2.shape)
+        # print(x_3.shape)
+        # print(x_4.shape)
 
         # x_f = torch.cat([x_4, x_3, x_2, x_1], dim=1)
 
