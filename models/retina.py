@@ -526,9 +526,16 @@ class RetinaNet(nn.Module):
             scores_per_image = cls_logits_per_image.sigmoid()
 
             # Decode box regression offsets to get actual box coordinates
-            boxes_per_image = self.box_coder.decode(
-                bbox_regression_per_image, anchors_per_image
-            )
+            if isinstance(anchors_per_image, torch.Tensor):
+                boxes_per_image = self.box_coder.decode(
+                    bbox_regression_per_image,
+                    [anchors_per_image],  # <-- wrap it in a list
+                )
+            else:
+                boxes_per_image = self.box_coder.decode(
+                    bbox_regression_per_image,
+                    anchors_per_image,  # (in case it already is a list)
+                )
 
             # Create dict to store results for this image
             result = {
