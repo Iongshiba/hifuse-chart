@@ -408,11 +408,11 @@ class TriFuse(nn.Module):
         x_p_2 = self.p3(x_p_3, x_f_2)
         x_p_1 = self.p2(x_p_2, x_f_1)
 
-        print("Feature Pyramid Network")
-        print(x_p_1.shape)
-        print(x_p_2.shape)
-        print(x_p_3.shape)
-        print(x_p_4.shape)
+        # print("Feature Pyramid Network")
+        # print(x_p_1.shape)
+        # print(x_p_2.shape)
+        # print(x_p_3.shape)
+        # print(x_p_4.shape)
 
         ###### Feature Fusion ######
         # x_4 = F.interpolate(x_p_4, scale_factor=8, mode="bilinear", align_corners=False)
