@@ -91,7 +91,7 @@ def evaluate(model, dataloader, device, epoch):
 
     prob = out_logits.softmax(-1)
     # change the index if non_object_index changes
-    prob[..., 0] *= 0
+    # prob[..., 0] *= 0
     scores, labels = prob.max(-1)
 
     boxes = box_cxcywh_to_xywh(out_bboxes)

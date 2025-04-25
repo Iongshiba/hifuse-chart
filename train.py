@@ -255,6 +255,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--head", type=str, default="detr")
+    parser.add_argument("--fpn-dim", type=int, default=768)
     parser.add_argument("--num-classes", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
