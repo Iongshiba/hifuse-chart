@@ -10,7 +10,8 @@ from torch.distributed.elastic.multiprocessing.errors import record
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+
+# from torch.utils.tensorboard import SummaryWriter
 from utils.build import (
     TriFuse_Tiny,
     get_params_groups,
@@ -182,10 +183,10 @@ def main(args):
                 model=model,
                 dataloader=val_loader,
                 device=device,
-                epoch=epoch,
+                logger=logger,
             )
 
-            logger.log(stats)
+            # logger.log(stats)
 
             tags = [
                 "train_loss",
