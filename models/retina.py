@@ -6,6 +6,8 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 import torchvision.models.detection._utils as det_utils
+from torchvision.ops import clip_boxes_to_image
+from torchvision.models.detection.retinanet import _sum
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
 from torchvision.ops import batched_nms
@@ -126,14 +128,11 @@ class RetinaNet(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        # Feature maps parameters
         in_channels_list: List[int] = None,
         out_channels: int = 256,
         fuse_fm: bool = False,
-        # Anchor parameters
         num_anchors: int = 9,
-        anchor_generator: AnchorGenerator = None,
-        # Other parameters
+        anchor_generator=None,
         proposal_matcher: det_utils.Matcher = None,
         box_loss_weight: float = 1.0,
         focal_loss_alpha: float = 0.25,
@@ -176,10 +175,10 @@ class RetinaNet(nn.Module):
         # Anchor generator
         if anchor_generator is None:
             anchor_sizes = (
-                (16, 32, 64),  # P1 (56x56)
-                (32, 64, 128),  # P2 (28x28)
-                (64, 128, 192),  # P3 (14x14)
-                (128, 192, 224),  # P4 (7x7)
+                (14, 28, 56),  # P1 (56x56)
+                (28, 56, 112),  # P2 (28x28)
+                (56, 112, 224),  # P3 (14x14)
+                (112, 224, 448),  # P4 (7x7)
             )
 
             aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
@@ -256,18 +255,18 @@ class RetinaNet(nn.Module):
             raise ValueError("In training mode, targets should be passed in")
 
         # Fuse feature maps
-        if self.fuse_fm:
-            h, w = (feature_maps[0].shape[2], feature_maps[0].shape[3])
+        # if self.fuse_fm:
+        #     h, w = (feature_maps[0].shape[2], feature_maps[0].shape[3])
 
-            # Upsample all feature maps to 56x56
-            upsampled_maps = [
-                F.interpolate(fm, size=(h, w), mode="bilinear", align_corners=False)
-                for fm in feature_maps
-            ]
+        #     # Upsample all feature maps to 56x56
+        #     upsampled_maps = [
+        #         F.interpolate(fm, size=(h, w), mode="bilinear", align_corners=False)
+        #         for fm in feature_maps
+        #     ]
 
-            # Concatenate along channel dimension (b, c, h, w)
-            feature_maps = torch.cat(upsampled_maps, dim=1)
-            feature_maps = [self.fuse(feature_maps)]
+        #     # Concatenate along channel dimension (b, c, h, w)
+        #     feature_maps = torch.cat(upsampled_maps, dm=1)
+        #     feature_maps = [self.fuse(feature_maps)]
 
         # Convert images to ImageList
         original_image_sizes = [img.shape[-2:] for img in images]
@@ -278,6 +277,10 @@ class RetinaNet(nn.Module):
 
         # Generate anchors for each feature map level
         anchors = self.anchor_generator(image_list, feature_maps)
+        anchors = [
+            clip_boxes_to_image(anchor, image_size)
+            for anchor, image_size in zip(anchors, image_list.image_sizes)
+        ]
 
         # If training, return losses
         if self.training:
@@ -377,46 +380,40 @@ class RetinaNet(nn.Module):
         for targets_per_image, cls_logits_per_image, matched_idxs_per_image in zip(
             targets, cls_logits, matched_idxs
         ):
-            # Identify foreground (matched to a ground truth box)
+            cls_logits_per_image = cls_logits_per_image.view(
+                cls_logits_per_image.shape[1], -1
+            ).T
+
+            # determine only the foreground
             foreground_idxs_per_image = matched_idxs_per_image >= 0
             num_foreground = foreground_idxs_per_image.sum()
 
-            # Create one-hot encoded target tensor. Shape: [num_anchors, num_classes]
+            # create the target classification
             gt_classes_target = torch.zeros_like(cls_logits_per_image)
 
-            # Only set values for foreground anchors
-            if num_foreground > 0:
-                # Get ground truth labels for matched anchors
-                # matched_idxs_per_image[foreground_idxs_per_image] gives the indices of ground truth boxes that were matched to each foreground anchor
-                gt_classes_idxs = targets_per_image["labels"][
+            gt_classes_target[
+                foreground_idxs_per_image,
+                targets_per_image["labels"][
                     matched_idxs_per_image[foreground_idxs_per_image]
-                ]
+                ],
+            ] = 1.0
 
-                # Set the corresponding class to 1 (one-hot encoding)
-                gt_classes_target[foreground_idxs_per_image, gt_classes_idxs] = 1.0
-
-            # Identify valid anchors (not between thresholds)
+            # find indices for which anchors should be ignored
             valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHOLDS
 
-            # Compute focal loss
-            if valid_idxs_per_image.sum() > 0:
-                losses.append(
-                    sigmoid_focal_loss(
-                        cls_logits_per_image[valid_idxs_per_image],
-                        gt_classes_target[valid_idxs_per_image],
-                        alpha=self.focal_loss_alpha,
-                        gamma=self.focal_loss_gamma,
-                        reduction="sum",
-                    )
-                    / max(
-                        1, num_foreground
-                    )  # Normalize by number of foreground anchors
+            # compute the class classification loss
+            losses.append(
+                sigmoid_focal_loss(
+                    cls_logits_per_image[valid_idxs_per_image],
+                    gt_classes_target[valid_idxs_per_image],
+                    alpha=self.focal_loss_alpha,
+                    gamma=self.focal_loss_gamma,
+                    reduction="sum",
                 )
-            else:
-                losses.append(cls_logits_per_image.sum() * 0)  # Empty loss
+                / max(1, num_foreground)
+            )
 
-        # Average loss across all images in batch
-        return torch.stack(losses).mean()
+        return _sum(losses) / len(targets)
 
     def _regression_loss(
         self,
@@ -446,171 +443,133 @@ class RetinaNet(nn.Module):
 
         for (
             targets_per_image,
-            bbox_regression_per_image,
+            bbox_reg_per_image,
             anchors_per_image,
             matched_idxs_per_image,
         ) in zip(targets, bbox_regression, anchors, matched_idxs):
-            # Find foreground anchors
-            foreground_idxs_per_image = matched_idxs_per_image >= 0
-            num_foreground = foreground_idxs_per_image.sum()
+            # determine only the forground indices, ignore the rest
+            foreground_idxs_per_image = torch.where(matched_idxs_per_image >= 0)[0]
+            num_foreground = foreground_idxs_per_image.numel()
 
-            # Skip if no foreground anchors
-            if num_foreground == 0:
-                losses.append(bbox_regression_per_image.sum() * 0)
-                continue
-
-            # Get ground truth boxes for foreground anchors
-            matched_gt_boxes = targets_per_image["boxes"][
+            # select only the foreground boxes
+            matched_gt_boxes_per_image = targets_per_image["boxes"][
                 matched_idxs_per_image[foreground_idxs_per_image]
             ]
-
-            # Get predicted boxes for foreground anchors
-            bbox_regression_per_image = bbox_regression_per_image[
-                foreground_idxs_per_image, :
-            ]
+            bbox_reg_per_image = bbox_reg_per_image[foreground_idxs_per_image, :]
             anchors_per_image = anchors_per_image[foreground_idxs_per_image, :]
 
-            # Encode ground truth boxes as targets for regression
-            # (convert from absolute coordinates to offsets relative to anchors)
-            target_regression = self.box_coder.encode(
-                matched_gt_boxes, anchors_per_image
+            if matched_gt_boxes_per_image.numel() == 0:
+                matched_gt_boxes_per_image = torch.full(
+                    (1, 4),
+                    -1.0,
+                    dtype=torch.float32,
+                    device=matched_gt_boxes_per_image.device,
+                )
+
+            # compute the loss
+            losses.append(
+                det_utils._box_loss(
+                    self.bbox_reg_loss_type,
+                    self.box_coder,
+                    anchors_per_image,
+                    matched_gt_boxes_per_image,
+                    bbox_reg_per_image,
+                )
+                / max(1, num_foreground)
             )
 
-            # Compute loss based on specified regression loss type
-            if self.bbox_reg_loss_type == "smooth_l1":
-                loss = F.smooth_l1_loss(
-                    bbox_regression_per_image,
-                    target_regression,
-                    beta=1.0 / 9.0,  # As used in Faster R-CNN
-                    reduction="sum",
-                )
-            elif self.bbox_reg_loss_type == "giou":
-                # Decode predictions to boxes
-                pred_boxes = self.box_coder.decode(
-                    bbox_regression_per_image, anchors_per_image
-                )
-                loss = 1 - torch.diag(
-                    box_ops.generalized_box_iou(pred_boxes, matched_gt_boxes)
-                )
-                loss = loss.sum()
-            else:
-                raise ValueError(f"Invalid box loss type '{self.bbox_reg_loss_type}'")
-
-            # Normalize by number of foreground anchors
-            losses.append(loss / max(1, num_foreground))
-
-        # Average loss across all images in batch
-        return torch.stack(losses).mean()
+        return _sum(losses) / max(1, len(targets))
 
     def _inference(
         self,
-        cls_logits: Tensor,
-        bbox_regression: Tensor,
-        anchors: List[Tensor],
+        cls_logits: List[Tensor],
+        bbox_regression: List[Tensor],
+        anchors: List,
         image_sizes: List[Tuple[int, int]],
     ) -> List[Dict[str, Tensor]]:
-        """
-        Perform inference and generate detections
 
-        Args:
-            cls_logits: Classification logits for all anchors
-            bbox_regression: Box regression values for all anchors
-            anchors: Anchor boxes
-            image_sizes: Original image sizes
+        # --- 0. make sure anchors is List[images][levels] -> Tensor[level_i,4]
+        if isinstance(anchors[0], torch.Tensor) and anchors[0].dim() == 3:
+            B = anchors[0].size(0)
+            anchors = [
+                [lvl[i] for lvl in anchors] for i in range(B)  # for each image i
+            ]
 
-        Returns:
-            List of dictionaries containing:
-            - 'boxes': Detected boxes
-            - 'scores': Confidence scores
-            - 'labels': Class labels
+        def _ensure_2d(x: Tensor) -> Tensor:
+            return x.unsqueeze(0) if x.dim() == 1 else x
 
-        Example flow:
-            1. Apply box regression to anchors
-            2. Convert sigmoid scores to probabilities
-            3. Filter by confidence threshold
-            4. Apply NMS per class
-            5. Take top-k detections
-        """
-        device = cls_logits.device
-        num_classes = cls_logits.shape[-1]
+        detections: List[Dict[str, Tensor]] = []
+        num_images = len(image_sizes)
 
-        # Create empty list to store results for each image
-        results = []
+        for img_idx in range(num_images):
+            # grab per-image, per-level tensors
+            box_regs = [br[img_idx] for br in bbox_regression]
+            logits = [cl[img_idx] for cl in cls_logits]
+            img_anchors, img_shape = anchors[img_idx], image_sizes[img_idx]
 
-        # Process one image at a time
-        for i, (
-            cls_logits_per_image,
-            bbox_regression_per_image,
-            anchors_per_image,
-            image_size,
-        ) in enumerate(zip(cls_logits, bbox_regression, anchors, image_sizes)):
-            # Apply sigmoid to classification logits to get probabilities
-            scores_per_image = cls_logits_per_image.sigmoid()
+            all_boxes, all_scores, all_labels = [], [], []
 
-            # Decode box regression offsets to get actual box coordinates
-            boxes_per_image = self.box_coder.decode(
-                bbox_regression_per_image, anchors_per_image
-            )
+            for br_lvl, logit_lvl, anch_lvl in zip(box_regs, logits, img_anchors):
+                # br_lvl:  (N_anchors, 4)
+                # logit_lvl: (N_anchors, num_classes)
+                # anch_lvl:   (N_anchors, 4)
 
-            # Create dict to store results for this image
-            result = {
-                "boxes": torch.zeros((0, 4), device=device),
-                "labels": torch.zeros(0, dtype=torch.int64, device=device),
-                "scores": torch.zeros(0, device=device),
-            }
+                num_classes = logit_lvl.shape[-1]
+                scores = torch.sigmoid(logit_lvl).flatten()
+                keep = scores > self.score_thresh
 
-            # Process each class separately (except background)
-            for class_idx in range(num_classes):
-                # Filter by score threshold
-                scores_for_class = scores_per_image[:, class_idx]
-                keep_idxs = scores_for_class > self.score_thresh
-                scores_for_class = scores_for_class[keep_idxs]
-
-                # Skip if no detections for this class
-                if scores_for_class.numel() == 0:
+                if not keep.any():
                     continue
 
-                # Get boxes for kept indices
-                boxes_for_class = boxes_per_image[keep_idxs, :]
+                scores = scores[keep]
+                idxs = torch.where(keep)[0]
 
-                # Apply NMS for this class
-                keep_idxs = batched_nms(
-                    boxes_for_class,
-                    scores_for_class,
-                    torch.full_like(scores_for_class, class_idx),
-                    self.nms_thresh,
+                # top-K
+                K = det_utils._topk_min(idxs, 1000, 0)
+                scores, topk_idx = scores.topk(K)
+                idxs = idxs[topk_idx]
+
+                # map flat idx -> anchor idx + label
+                anchor_idxs = torch.div(idxs, num_classes, rounding_mode="floor")
+                labels = idxs % num_classes
+
+                # slice out the regressions and anchors
+                sel_regs = _ensure_2d(br_lvl[anchor_idxs])
+                sel_anc = _ensure_2d(anch_lvl[anchor_idxs])
+
+                # decode + clip
+                boxes = self.box_coder.decode_single(sel_regs, sel_anc)
+                boxes = box_ops.clip_boxes_to_image(boxes, img_shape)
+
+                all_boxes.append(boxes)
+                all_scores.append(scores)
+                all_labels.append(labels)
+
+            if not all_scores:
+                # no detections for this image
+                detections.append(
+                    {
+                        "boxes": torch.zeros(0, 4),
+                        "scores": torch.zeros(0),
+                        "labels": torch.zeros(0, dtype=torch.int64),
+                    }
                 )
+                continue
 
-                # Take top detections after NMS
-                keep_idxs = keep_idxs[: self.detections_per_img]
+            boxes = torch.cat(all_boxes, 0)
+            scores = torch.cat(all_scores, 0)
+            labels = torch.cat(all_labels, 0)
 
-                # Add detections for this class to results
-                result["boxes"] = torch.cat(
-                    (result["boxes"], boxes_for_class[keep_idxs]), dim=0
-                )
-                result["scores"] = torch.cat(
-                    (result["scores"], scores_for_class[keep_idxs]), dim=0
-                )
-                result["labels"] = torch.cat(
-                    (
-                        result["labels"],
-                        torch.full_like(keep_idxs, class_idx, dtype=torch.int64),
-                    ),
-                    dim=0,
-                )
+            # final NMS and cap at top detection count
+            keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
+            keep = keep[: self.detections_per_img]
 
-            # If we have more than max detections, keep only the highest scoring ones
-            if len(result["boxes"]) > self.detections_per_img:
-                _, sorted_idxs = torch.sort(result["scores"], descending=True)
-                sorted_idxs = sorted_idxs[: self.detections_per_img]
-                result["boxes"] = result["boxes"][sorted_idxs]
-                result["scores"] = result["scores"][sorted_idxs]
-                result["labels"] = result["labels"][sorted_idxs]
+            detections.append(
+                {
+                    "boxes": boxes[keep],
+                    "scores": scores[keep],
+                    "labels": labels[keep],
+                }
+            )
 
-            # Clip boxes to image size
-            h, w = image_size
-            result["boxes"] = box_ops.clip_boxes_to_image(result["boxes"], (h, w))
-
-            results.append(result)
-
-        return results
+        return detections

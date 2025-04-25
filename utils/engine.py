@@ -278,8 +278,64 @@ def evaluate(model, dataloader, device, logger):
     results = metrics.results_dict
 
     # Log metrics in the same format as train_one_epoch
-    if logger is not None and global_rank == 0:
+    if logger is not None:
         for k, v in results.items():
             logger.log({f"val/{k}": v})
 
     return results
+
+
+def train_one_epoch_retina(
+    model,
+    optimizer,
+    dataloader,
+    criterion,
+    device,
+    epoch,
+    lr_scheduler,
+    global_rank,
+    logger,
+    scaler,
+    amp,
+    max_norm,
+):
+
+    torch.cuda.empty_cache()
+    model.train()
+
+    # criterion.train()
+
+    accu_loss = torch.zeros(1).to(device)
+
+    optimizer.zero_grad(set_to_none=True)
+
+    bar = tqdm(dataloader, file=sys.stdout, disable=global_rank != 0)
+
+    for step, data in enumerate(bar):
+        images, anns, _ = data
+        images = images.to(device)
+        anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
+
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+            loss = model(images, anns)["loss"]
+
+        scaler.scale(loss).backward()
+
+        accu_loss += loss
+
+        if max_norm > 0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+
+        scaler.update()
+        optimizer.step()
+        lr_scheduler.step()
+
+        bar.desc = f"[Train Epoch {epoch}] Loss: {loss.item():.3f}\tLR: {optimizer.param_groups[0]['lr']:.6f}"
+
+        if logger is not None and global_rank == 0:
+            logger.log(
+                {"train/loss": loss.item(), "train/lr": optimizer.param_groups[0]["lr"]}
+            )
+
+    return accu_loss.item() / (step + 1)

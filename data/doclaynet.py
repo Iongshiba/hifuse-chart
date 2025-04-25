@@ -4,6 +4,7 @@ import torch
 
 from PIL import Image
 from torch.utils.data import Dataset
+from torchvision.transforms import Compose, Resize, ToTensor, Normalize
 
 
 class YOLODataset(Dataset):
@@ -157,3 +158,94 @@ class COCODataset(Dataset):
         labels = list(labels)
         items = list(items)
         return images, labels, items
+
+
+class YOLOCOCODataset(Dataset):
+    def __init__(self, img_dir, label_dir, transform=None):
+        self.img_dir = img_dir
+        self.label_dir = label_dir
+        self.transform = transform if transform is not None else self._transform()
+
+        self.img_files = [
+            os.path.join(img_dir, f)
+            for f in os.listdir(img_dir)
+            if f.endswith((".jpg", ".jpeg", ".png", ".bmp"))
+        ]
+        self.img_files.sort()
+
+    def __len__(self):
+        return len(self.img_files)
+
+    def _transform(self):
+        return Compose(
+            [
+                Resize((224, 224)),
+                ToTensor(),
+                Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
+
+    def _load_label(self, label_path, img_width, img_height):
+        boxes = []
+        labels = []
+
+        with open(label_path, "r") as f:
+            for line in f.readlines():
+                if line.strip():
+                    data = line.strip().split()
+                    class_id = int(data[0])
+                    cx = float(data[1]) * img_width
+                    cy = float(data[2]) * img_height
+                    w = float(data[3]) * img_width
+                    h = float(data[4]) * img_height
+
+                    x1 = cx - (w / 2)
+                    y1 = cy - (h / 2)
+                    x2 = cx + (w / 2)
+                    y2 = cy + (h / 2)
+
+                    boxes.append([x1, y1, x2, y2])
+                    labels.append(class_id)
+
+        if boxes:
+            boxes = torch.tensor(boxes, dtype=torch.float32)
+            labels = torch.tensor(labels, dtype=torch.int64)
+        else:
+            # Return empty tensors if no boxes
+            boxes = torch.zeros((0, 4), dtype=torch.float32)
+            labels = torch.as_tensor([-1], dtype=torch.int64)
+
+        return boxes, labels
+
+    def __getitem__(self, idx):
+        """Get image and corresponding labels"""
+        img_path = self.img_files[idx]
+
+        img_name = os.path.basename(img_path)
+        base_name = os.path.splitext(img_name)[0]
+        label_path = os.path.join(self.label_dir, f"{base_name}.txt")
+
+        img = Image.open(img_path).convert("RGB")
+
+        width, height = img.size
+        boxes, labels = self._load_label(label_path, width, height)
+
+        img = self.transform(img)
+
+        target = {"boxes": boxes, "labels": labels, "image_id": torch.tensor([idx])}
+
+        return img, target
+
+    @staticmethod
+    def collate_fn(batch):
+        images = []
+        targets = []
+
+        for img, target in batch:
+            images.append(img)
+            targets.append(target)
+
+        # Stack images
+        images = torch.stack(images, dim=0)
+
+        return images, targets
