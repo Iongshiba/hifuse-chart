@@ -180,109 +180,109 @@ def plot_img(model, dataset, device, args):
     return stats
 
 
-# @torch.no_grad()
-# def evaluate(model, dataloader, device, logger):
-#     model.eval()
-#     torch.cuda.empty_cache()
+@torch.no_grad()
+def evaluate(model, dataloader, device, logger):
+    model.eval()
+    torch.cuda.empty_cache()
 
-#     from ultralytics.utils.metrics import DetMetrics
+    from ultralytics.utils.metrics import DetMetrics
 
-#     metrics = DetMetrics()
+    metrics = DetMetrics()
 
-#     bar = tqdm(dataloader, file=sys.stdout)
+    bar = tqdm(dataloader, file=sys.stdout)
 
-#     for step, data in enumerate(bar):
-#         images, anns, _ = data
-#         images = images.to(device, non_blocking=True)
-#         anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
+    for step, data in enumerate(bar):
+        images, anns, _ = data
+        images = images.to(device, non_blocking=True)
+        anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
 
-#         preds = model(images)
+        preds = model(images)
 
-#         for i, pred in enumerate(preds):
-#             if i >= len(anns):
-#                 continue  # Skip if no target for this prediction
+        for i, pred in enumerate(preds):
+            if i >= len(anns):
+                continue  # Skip if no target for this prediction
 
-#             target = anns[i]
+            target = anns[i]
 
-#             boxes = pred["boxes"]
-#             scores = pred["scores"]
-#             labels = pred["labels"]
+            boxes = pred["boxes"]
+            scores = pred["scores"]
+            labels = pred["labels"]
 
-#             # Skip if no detections
-#             if len(boxes) == 0:
-#                 continue
+            # Skip if no detections
+            if len(boxes) == 0:
+                continue
 
-#             # Convert boxes from [x1, y1, x2, y2] to [x1, y1, w, h]
-#             # No need for conversion if the model already outputs in [x1, y1, x2, y2] format
+            # Convert boxes from [x1, y1, x2, y2] to [x1, y1, w, h]
+            # No need for conversion if the model already outputs in [x1, y1, x2, y2] format
 
-#             # Process target format - assuming it's in YOLO format
-#             target_boxes = None
-#             target_cls = None
+            # Process target format - assuming it's in YOLO format
+            target_boxes = None
+            target_cls = None
 
-#             # Determine target format and extract necessary data
-#             if isinstance(target, dict):
-#                 # Handle dict format targets
-#                 if "boxes" in target and "labels" in target:
-#                     target_boxes = target["boxes"].to(device)
-#                     target_cls = target["labels"].to(device)
-#             elif isinstance(target, torch.Tensor):
-#                 # Handle YOLO format: [class_id, x_center, y_center, width, height] or another format
-#                 if target.size(-1) >= 5:
-#                     target_cls = target[:, 0].to(device)
-#                     target_boxes = target[:, 1:5].to(device)
+            # Determine target format and extract necessary data
+            if isinstance(target, dict):
+                # Handle dict format targets
+                if "boxes" in target and "labels" in target:
+                    target_boxes = target["boxes"].to(device)
+                    target_cls = target["labels"].to(device)
+            elif isinstance(target, torch.Tensor):
+                # Handle YOLO format: [class_id, x_center, y_center, width, height] or another format
+                if target.size(-1) >= 5:
+                    target_cls = target[:, 0].to(device)
+                    target_boxes = target[:, 1:5].to(device)
 
-#             if target_boxes is None or target_cls is None:
-#                 continue  # Skip if target format can't be determined
+            if target_boxes is None or target_cls is None:
+                continue  # Skip if target format can't be determined
 
-#             # Convert predictions to format needed by Ultralytics' process method
-#             # Calculate IoU between predictions and targets
-#             ious = box_iou(boxes, target_boxes)
-#             correct = torch.zeros(len(boxes), device=device)  # init tp tensor
+            # Convert predictions to format needed by Ultralytics' process method
+            # Calculate IoU between predictions and targets
+            ious = box_iou(boxes, target_boxes)
+            correct = torch.zeros(len(boxes), device=device)  # init tp tensor
 
-#             if len(target_boxes) > 0:
-#                 # For each prediction, identify if it matches a ground truth
-#                 for j, pred_box in enumerate(boxes):
-#                     pred_label = labels[j]
+            if len(target_boxes) > 0:
+                # For each prediction, identify if it matches a ground truth
+                for j, pred_box in enumerate(boxes):
+                    pred_label = labels[j]
 
-#                     # Find potential matches (same class)
-#                     same_class = target_cls == pred_label
+                    # Find potential matches (same class)
+                    same_class = target_cls == pred_label
 
-#                     if not same_class.any():
-#                         continue  # No matching class in ground truth
+                    if not same_class.any():
+                        continue  # No matching class in ground truth
 
-#                     # Get IoUs for this prediction with ground truths of same class
-#                     valid_ious = ious[j][same_class]
+                    # Get IoUs for this prediction with ground truths of same class
+                    valid_ious = ious[j][same_class]
 
-#                     if len(valid_ious) > 0:
-#                         best_iou, best_idx = valid_ious.max(0)
+                    if len(valid_ious) > 0:
+                        best_iou, best_idx = valid_ious.max(0)
 
-#                         # If IoU exceeds threshold, this is a true positive
-#                         if best_iou >= iou_threshold:
-#                             correct[j] = 1
+                        # If IoU exceeds threshold, this is a true positive
+                        if best_iou >= iou_threshold:
+                            correct[j] = 1
 
-#             # Now convert tensors to numpy arrays for DetMetrics.process()
-#             tp = correct.cpu().numpy()
-#             conf = scores.cpu().numpy()
-#             pred_cls = labels.cpu().numpy()
-#             target_cls = target_cls.cpu().numpy()
+            # Now convert tensors to numpy arrays for DetMetrics.process()
+            tp = correct.cpu().numpy()
+            conf = scores.cpu().numpy()
+            pred_cls = labels.cpu().numpy()
+            target_cls = target_cls.cpu().numpy()
 
-#             # Update metrics using Ultralytics DetMetrics
-#             metrics.process(tp, conf, pred_cls, target_cls)
+            # Update metrics using Ultralytics DetMetrics
+            metrics.process(tp, conf, pred_cls, target_cls)
 
-#             # Update progress bar description periodically
-#             if i % 10 == 0:
-#                 current_map = metrics.results_dict.get("map50-95", 0)
-#                 bar.desc = f"[Validate] mAP: {current_map:.4f}"
+            # Update progress bar description periodically
+            if i % 10 == 0:
+                current_map = metrics.results_dict.get("map50-95", 0)
+                bar.desc = f"[Validate] mAP: {current_map:.4f}"
 
-#     # Get final metrics
-#     results = metrics.results_dict
+    # Get final metrics
+    results = metrics.results_dict
 
-#     # Log metrics in the same format as train_one_epoch
-#     if logger is not None and global_rank == 0:
-#         for k, v in results.items():
-#             logger.log({f"val/{k}": v})
+    # Log metrics in the same format as train_one_epoch
+    if logger is not None and global_rank == 0:
+        for k, v in results.items():
+            logger.log({f"val/{k}": v})
 
-#     return results
+    return results
 
 
 def train_one_epoch_retina(
