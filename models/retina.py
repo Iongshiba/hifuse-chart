@@ -255,18 +255,18 @@ class RetinaNet(nn.Module):
             raise ValueError("In training mode, targets should be passed in")
 
         # Fuse feature maps
-        if self.fuse_fm:
-            h, w = (feature_maps[0].shape[2], feature_maps[0].shape[3])
+        # if self.fuse_fm:
+        #     h, w = (feature_maps[0].shape[2], feature_maps[0].shape[3])
 
-            # Upsample all feature maps to 56x56
-            upsampled_maps = [
-                F.interpolate(fm, size=(h, w), mode="bilinear", align_corners=False)
-                for fm in feature_maps
-            ]
+        #     # Upsample all feature maps to 56x56
+        #     upsampled_maps = [
+        #         F.interpolate(fm, size=(h, w), mode="bilinear", align_corners=False)
+        #         for fm in feature_maps
+        #     ]
 
-            # Concatenate along channel dimension (b, c, h, w)
-            feature_maps = torch.cat(upsampled_maps, dim=1)
-            feature_maps = [self.fuse(feature_maps)]
+        #     # Concatenate along channel dimension (b, c, h, w)
+        #     feature_maps = torch.cat(upsampled_maps, dm=1)
+        #     feature_maps = [self.fuse(feature_maps)]
 
         # Convert images to ImageList
         original_image_sizes = [img.shape[-2:] for img in images]
@@ -482,120 +482,94 @@ class RetinaNet(nn.Module):
 
     def _inference(
         self,
-        cls_logits: Tensor,
-        bbox_regression: Tensor,
-        anchors: List[Tensor],
+        cls_logits: List[Tensor],
+        bbox_regression: List[Tensor],
+        anchors: List,
         image_sizes: List[Tuple[int, int]],
     ) -> List[Dict[str, Tensor]]:
-        """
-        Perform inference and generate detections
 
-        Args:
-            cls_logits: Classification logits for all anchors
-            bbox_regression: Box regression values for all anchors
-            anchors: Anchor boxes
-            image_sizes: Original image sizes
+        # --- 0. make sure anchors is List[images][levels] -> Tensor[level_i,4]
+        if isinstance(anchors[0], torch.Tensor) and anchors[0].dim() == 3:
+            B = anchors[0].size(0)
+            anchors = [
+                [lvl[i] for lvl in anchors] for i in range(B)  # for each image i
+            ]
 
-        Returns:
-            List of dictionaries containing:
-            - 'boxes': Detected boxes
-            - 'scores': Confidence scores
-            - 'labels': Class labels
+        def _ensure_2d(x: Tensor) -> Tensor:
+            return x.unsqueeze(0) if x.dim() == 1 else x
 
-        Example flow:
-            1. Apply box regression to anchors
-            2. Convert sigmoid scores to probabilities
-            3. Filter by confidence threshold
-            4. Apply NMS per class
-            5. Take top-k detections
-        """
-        device = cls_logits.device
-        num_classes = cls_logits.shape[-1]
+        detections: List[Dict[str, Tensor]] = []
+        num_images = len(image_sizes)
 
-        # Create empty list to store results for each image
-        results = []
+        for img_idx in range(num_images):
+            # grab per-image, per-level tensors
+            box_regs = [br[img_idx] for br in bbox_regression]
+            logits = [cl[img_idx] for cl in cls_logits]
+            img_anchors, img_shape = anchors[img_idx], image_sizes[img_idx]
 
-        # Process one image at a time
-        for i, (
-            cls_logits_per_image,
-            bbox_regression_per_image,
-            anchors_per_image,
-            image_size,
-        ) in enumerate(zip(cls_logits, bbox_regression, anchors, image_sizes)):
-            # Apply sigmoid to classification logits to get probabilities
-            scores_per_image = cls_logits_per_image.sigmoid()
+            all_boxes, all_scores, all_labels = [], [], []
 
-            # Decode box regression offsets to get actual box coordinates
-            if isinstance(anchors_per_image, torch.Tensor):
-                boxes_per_image = self.box_coder.decode(
-                    bbox_regression_per_image,
-                    [anchors_per_image],  # <-- wrap it in a list
-                )
-            else:
-                boxes_per_image = self.box_coder.decode(
-                    bbox_regression_per_image,
-                    anchors_per_image,  # (in case it already is a list)
-                )
+            for br_lvl, logit_lvl, anch_lvl in zip(box_regs, logits, img_anchors):
+                # br_lvl:  (N_anchors, 4)
+                # logit_lvl: (N_anchors, num_classes)
+                # anch_lvl:   (N_anchors, 4)
 
-            # Create dict to store results for this image
-            result = {
-                "boxes": torch.zeros((0, 4), device=device),
-                "labels": torch.zeros(0, dtype=torch.int64, device=device),
-                "scores": torch.zeros(0, device=device),
-            }
+                num_classes = logit_lvl.shape[-1]
+                scores = torch.sigmoid(logit_lvl).flatten()
+                keep = scores > self.score_thresh
 
-            # Process each class separately (except background)
-            for class_idx in range(num_classes):
-                # Filter by score threshold
-                scores_for_class = scores_per_image[:, class_idx]
-                keep_idxs = scores_for_class > self.score_thresh
-                scores_for_class = scores_for_class[keep_idxs]
-
-                # Skip if no detections for this class
-                if scores_for_class.numel() == 0:
+                if not keep.any():
                     continue
 
-                # Get boxes for kept indices
-                boxes_for_class = boxes_per_image[keep_idxs, :]
+                scores = scores[keep]
+                idxs = torch.where(keep)[0]
 
-                # Apply NMS for this class
-                keep_idxs = batched_nms(
-                    boxes_for_class,
-                    scores_for_class,
-                    torch.full_like(scores_for_class, class_idx),
-                    self.nms_thresh,
+                # top-K
+                K = det_utils._topk_min(idxs, 1000, 0)
+                scores, topk_idx = scores.topk(K)
+                idxs = idxs[topk_idx]
+
+                # map flat idx -> anchor idx + label
+                anchor_idxs = torch.div(idxs, num_classes, rounding_mode="floor")
+                labels = idxs % num_classes
+
+                # slice out the regressions and anchors
+                sel_regs = _ensure_2d(br_lvl[anchor_idxs])
+                sel_anc = _ensure_2d(anch_lvl[anchor_idxs])
+
+                # decode + clip
+                boxes = self.box_coder.decode_single(sel_regs, sel_anc)
+                boxes = box_ops.clip_boxes_to_image(boxes, img_shape)
+
+                all_boxes.append(boxes)
+                all_scores.append(scores)
+                all_labels.append(labels)
+
+            if not all_scores:
+                # no detections for this image
+                detections.append(
+                    {
+                        "boxes": torch.zeros(0, 4),
+                        "scores": torch.zeros(0),
+                        "labels": torch.zeros(0, dtype=torch.int64),
+                    }
                 )
+                continue
 
-                # Take top detections after NMS
-                keep_idxs = keep_idxs[: self.detections_per_img]
+            boxes = torch.cat(all_boxes, 0)
+            scores = torch.cat(all_scores, 0)
+            labels = torch.cat(all_labels, 0)
 
-                # Add detections for this class to results
-                result["boxes"] = torch.cat(
-                    (result["boxes"], boxes_for_class[keep_idxs]), dim=0
-                )
-                result["scores"] = torch.cat(
-                    (result["scores"], scores_for_class[keep_idxs]), dim=0
-                )
-                result["labels"] = torch.cat(
-                    (
-                        result["labels"],
-                        torch.full_like(keep_idxs, class_idx, dtype=torch.int64),
-                    ),
-                    dim=0,
-                )
+            # final NMS and cap at top detection count
+            keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
+            keep = keep[: self.detections_per_img]
 
-            # If we have more than max detections, keep only the highest scoring ones
-            if len(result["boxes"]) > self.detections_per_img:
-                _, sorted_idxs = torch.sort(result["scores"], descending=True)
-                sorted_idxs = sorted_idxs[: self.detections_per_img]
-                result["boxes"] = result["boxes"][sorted_idxs]
-                result["scores"] = result["scores"][sorted_idxs]
-                result["labels"] = result["labels"][sorted_idxs]
+            detections.append(
+                {
+                    "boxes": boxes[keep],
+                    "scores": scores[keep],
+                    "labels": labels[keep],
+                }
+            )
 
-            # Clip boxes to image size
-            h, w = image_size
-            result["boxes"] = box_ops.clip_boxes_to_image(result["boxes"], (h, w))
-
-            results.append(result)
-
-        return results
+        return detections
