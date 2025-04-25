@@ -278,7 +278,7 @@ def evaluate(model, dataloader, device, logger):
     results = metrics.results_dict
 
     # Log metrics in the same format as train_one_epoch
-    if logger is not None and global_rank == 0:
+    if logger is not None:
         for k, v in results.items():
             logger.log({f"val/{k}": v})
 
