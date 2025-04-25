@@ -106,10 +106,11 @@ def main(args):
         if args.distributed
         else model
     )
-    criterion = create_criterion(num_classees=args.num_classes, head=args.head).to(
-        device
-    )
-    check_model_memory(model, criterion, val_loader)
+    # criterion = create_criterion(num_classees=args.num_classes, head=args.head).to(
+    #     device
+    # )
+    criterion = None
+    # check_model_memory(model, criterion, val_loader)
     # pg = [p for p in model.parameters() if p.requires_grad]
     pg = get_params_groups(model, weight_decay=args.wd, learning_rate=args.lr)
     optimizer = optim.AdamW(pg, lr=args.lr, weight_decay=args.wd)
