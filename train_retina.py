@@ -24,7 +24,7 @@ from utils.engine import train_one_epoch_retina, evaluate, plot_img
 
 @record
 def main(args):
-    wandb.login()
+    wandb.login(key=os.environ["WANDB_API_KEY"])
     logger = wandb.init(project="trifuse", config=args)
     logger.define_metric("eval/precision", summary="max")
     logger.define_metric("eval/recall", summary="max")
