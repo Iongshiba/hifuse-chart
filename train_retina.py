@@ -47,7 +47,7 @@ def main(args):
     assert local_rank != -1, "LOCAL_RANK environment variable not set"
     assert global_rank != -1, "RANK environment variable not set"
 
-    torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.benchmark = True
     torch.cuda.set_device(local_rank)
     device = torch.device("cuda")
 
