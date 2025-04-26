@@ -183,10 +183,10 @@ def main(args):
                 model=model,
                 dataloader=val_loader,
                 device=device,
-                logger=logger,
+                epoch=epoch,
             )
 
-            # logger.log(stats)
+            logger.log(stats)
 
             tags = [
                 "train_loss",
@@ -197,16 +197,16 @@ def main(args):
                 "learning_rate",
             ]
 
-            # plot_stats = plot_img(
-            #     model=model,
-            #     dataset=val_dataset,
-            #     device=device,
-            #     args=args,
-            # )
+            plot_stats = plot_img(
+                model=model,
+                dataset=val_dataset,
+                device=device,
+                args=args,
+            )
 
-            # logger.log(plot_stats)
+            logger.log(plot_stats)
 
-            if best_map < stats["map"]:
+            if best_map < stats["eval/mAP5095"]:
                 if not os.path.isdir(args.root_path + "/model_weight"):
                     os.mkdir(args.root_path + "/model_weight")
                 torch.save(
