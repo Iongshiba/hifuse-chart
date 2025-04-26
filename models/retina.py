@@ -1,5 +1,5 @@
 import math
-from typing import List, Tuple, Dict, Union
+from typing import List, Optional, Tuple, Dict, Union
 
 import torch
 import torch.nn as nn
@@ -76,7 +76,7 @@ class RetinaNetHead(nn.Module):
             for layer in modules.modules():
                 if isinstance(layer, nn.Conv2d):
                     nn.init.kaiming_normal_(
-                        layer.weight, mode="fan-out", nonlinearity="relu"
+                        layer.weight, mode="fan_out", nonlinearity="relu"
                     )
                     nn.init.constant_(layer.bias, 0)
 
@@ -225,7 +225,7 @@ class RetinaNet(nn.Module):
         self,
         feature_maps: list[Tensor],
         images: List[Tensor],
-        targets: List[Dict[str, Tensor]] = None,
+        targets: Optional[List[Dict[str, Tensor]]] = None,
     ) -> Union[Dict[str, Tensor], List[Dict[str, Tensor]]]:
         """
         Forward pass
@@ -527,7 +527,7 @@ class RetinaNet(nn.Module):
                 idxs = torch.where(keep)[0]
 
                 # top-K
-                K = det_utils._topk_min(idxs, 1000, 0)
+                K = det_utils._topk_min(idxs, self.detections_per_img, 0)
                 scores, topk_idx = scores.topk(K)
                 idxs = idxs[topk_idx]
 
