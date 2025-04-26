@@ -2,6 +2,8 @@ import os
 import torch
 import wandb
 import argparse
+import random
+import numpy as np
 
 import torch.optim as optim
 
@@ -24,12 +26,6 @@ from utils.engine import train_one_epoch_retina, evaluate_retina, plot_img
 
 @record
 def main(args):
-    wandb.login(key=os.environ["WANDB_API_KEY"])
-    logger = wandb.init(project="trifuse", config=args)
-    logger.define_metric("eval/precision", summary="max")
-    logger.define_metric("eval/recall", summary="max")
-    logger.define_metric("eval/mAP50", summary="max")
-    logger.define_metric("eval/mAP5095", summary="max")
 
     ###########################
     ##                       ##
@@ -51,9 +47,32 @@ def main(args):
     assert local_rank != -1, "LOCAL_RANK environment variable not set"
     assert global_rank != -1, "RANK environment variable not set"
 
+    torch.backends.cudnn.benchmark = True
     torch.cuda.set_device(local_rank)
     device = torch.device("cuda")
+
+    # Set random seed for reproducibility
+    seed = 42 + global_rank
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
     print(f"GPU {local_rank} - Using device: {device}")
+
+    ##############################
+    ##                          ##
+    ##   Wandb Initialization   ##
+    ##                          ##
+    ##############################
+
+    if global_rank == 0 or not args.distributed:
+        wandb.login(key=os.environ["WANDB_API_KEY"])
+        logger = wandb.init(project="trifuse", config=args)
+        logger.define_metric("eval/precision", summary="max")
+        logger.define_metric("eval/recall", summary="max")
+        logger.define_metric("eval/mAP50", summary="max")
+        logger.define_metric("eval/mAP5095", summary="max")
 
     ###################
     ##               ##
@@ -72,7 +91,7 @@ def main(args):
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=(not args.distributed),
         pin_memory=True,
         num_workers=nw,
         collate_fn=train_dataset.collate_fn,
@@ -152,7 +171,11 @@ def main(args):
 
     if args.RESUME:
         assert args.root_path != "", "checkpoint path is None when resume training"
-        path_checkpoint = args.root_path + "/model_weight/checkpoint/ckpt_best.pth"
+        assert args.resume_epoch != -1, "resume epoch is None when resume training"
+        path_checkpoint = (
+            args.root_path
+            + "/model_weight/checkpoint/ckpt_best_%s.pth" % (str(args.resume_epoch))
+        )
         print("model continue train")
         checkpoint = torch.load(path_checkpoint)
         model.load_state_dict(checkpoint["net"])
@@ -161,6 +184,9 @@ def main(args):
         lr_scheduler.load_state_dict(checkpoint["lr_schedule"])
 
     for epoch in range(start_epoch + 1, args.epochs + 1):
+
+        if args.distributed:
+            train_loader.sampler.set_epoch(epoch)
 
         train_loss = train_one_epoch_retina(
             model=model,
@@ -187,14 +213,14 @@ def main(args):
 
             logger.log(stats)
 
-            tags = [
-                "train_loss",
-                "precision",
-                "recall",
-                "mAP50",
-                "mAP5095",
-                "learning_rate",
-            ]
+            # tags = [
+            #     "train_loss",
+            #     "precision",
+            #     "recall",
+            #     "mAP50",
+            #     "mAP5095",
+            #     "learning_rate",
+            # ]
 
             # plot_stats = plot_img(
             #     model=model,
@@ -206,28 +232,31 @@ def main(args):
             # logger.log(plot_stats)
 
             if best_map < stats["eval/mAP5095"]:
-                if not os.path.isdir(args.root_path + "/model_weight"):
-                    os.mkdir(args.root_path + "/model_weight")
+                if not os.path.isdir(args.root_path + "/model_weight/"):
+                    os.mkdir(args.root_path + "/model_weight/")
                 torch.save(
-                    model.state_dict(), args.root_path + "/model_weight/best_model.pth"
+                    model.state_dict(),
+                    args.root_path + "/model_weight/best_model.pth",
                 )
                 print("Saved epoch{} as new best model".format(epoch))
                 best_map = stats["eval/mAP5095"]
 
-            if epoch % 10 == 0:
+            if epoch % args.save_every == 0:
                 checkpoint = {
                     "net": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "epoch": epoch,
                     "lr_schedule": lr_scheduler.state_dict(),
                 }
-                if not os.path.isdir(args.root_path + "/model_weight"):
-                    os.mkdir(args.root_path + "/model_weight")
+                if not os.path.isdir(args.root_path + "/model_weight/checkpoint"):
+                    os.mkdir(args.root_path + "/model_weight/checkpoint")
                 torch.save(
                     checkpoint,
                     args.root_path
                     + "/model_weight/checkpoint/ckpt_best_%s.pth" % (str(epoch)),
                 )
+
+    destroy_process_group()
 
     # total = sum([param.nelement() for param in model.parameters()])
     # print("Number of parameters: %.2fM" % (total / 1e6))
@@ -242,9 +271,11 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--wd", type=float, default=1e-4)
+    parser.add_argument("--save-every", type=int, default=10)
     parser.add_argument("--max-norm", type=float, default=0.1)
     parser.add_argument("--he-gain", type=float, default=1.5)
     parser.add_argument("--RESUME", type=bool, default=False)
+    parser.add_argument("--resume-epoch", type=int, default=-1)
     parser.add_argument("--root-path", type=str, default="")
 
     parser.add_argument("--data", type=str, default="coco")
