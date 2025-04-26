@@ -75,7 +75,9 @@ class RetinaNetHead(nn.Module):
         for modules in [self.cls_subnet, self.bbox_subnet]:
             for layer in modules.modules():
                 if isinstance(layer, nn.Conv2d):
-                    nn.init.normal_(layer.weight, std=0.01)
+                    nn.init.kaiming_normal_(
+                        layer.weight, mode="fan-out", nonlinearity="relu"
+                    )
                     nn.init.constant_(layer.bias, 0)
 
     def forward(self, features: List[Tensor]) -> Tuple[Tensor, Tensor]:
