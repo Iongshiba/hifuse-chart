@@ -158,7 +158,6 @@ def evaluate_retina(model, dataloader, device, epoch):
         batch_size = len(images)
 
         preds = model(images.to(device))
-        print(preds)
 
         for b in range(batch_size):
             info = items[b]
