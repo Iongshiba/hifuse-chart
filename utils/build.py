@@ -14,6 +14,8 @@ from utils.data import (
     read_data_detection_coco,
     make_coco_transforms,
     DetectionTransform,
+    ImageOnlyTransform,
+    image_normalize,
 )
 from data.doclaynet import YOLODataset, COCODataset
 
@@ -77,12 +79,12 @@ def create_dataset(args):
             train_dataset = COCODataset(
                 image_dir=train_images_dir,
                 label_path=train_label_path,
-                transform=None,
+                transform=ImageOnlyTransform(image_normalize()),
             )
             val_dataset = COCODataset(
                 image_dir=val_images_dir,
                 label_path=val_label_path,
-                transform=None,
+                transform=ImageOnlyTransform(image_normalize()),
             )
         else:
             train_dataset = COCODataset(
