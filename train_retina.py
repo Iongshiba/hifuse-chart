@@ -237,7 +237,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--image-size", type=int, default=224)
-    parser.add_argument("--head", type=str, default="detr")
+    parser.add_argument("--head", type=str, default="retina")
     parser.add_argument("--num-classes", type=int, default=1)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=1)
@@ -249,6 +249,7 @@ if __name__ == "__main__":
     parser.add_argument("--root-path", type=str, default="")
 
     parser.add_argument("--data", type=str, default="coco")
+    parser.add_argument("--no-transform", type=bool, default=False)
     parser.add_argument(
         "--root-data-path",
         type=str,
