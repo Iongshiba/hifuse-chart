@@ -154,10 +154,11 @@ def evaluate_retina(model, dataloader, device, epoch):
 
     global_idx = 0
     bar = tqdm(dataloader, file=sys.stdout, desc=f"Eval Epoch {epoch}")
-    for images, _, items in bar:
+    for images, anns, items in bar:
         batch_size = len(images)
 
         preds = model(images.to(device))
+        print(preds)
 
         for b in range(batch_size):
             info = items[b]
@@ -191,6 +192,16 @@ def evaluate_retina(model, dataloader, device, epoch):
                     }
                 )
                 global_idx += 1
+
+    # if no predictions, return early
+    if len(coco_predictions) == 0:
+        print("No predictions found.")
+        return {
+            "eval/precision": 0.0,
+            "eval/recall": 0.0,
+            "eval/mAP50": 0.0,
+            "eval/mAP5095": 0.0,
+        }
 
     # Load ground truth and detections
     gt_coco = COCO(dataloader.dataset.label_path)
