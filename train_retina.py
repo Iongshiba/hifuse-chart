@@ -16,11 +16,10 @@ from utils.build import (
     TriFuse_Tiny,
     get_params_groups,
     create_lr_scheduler,
-    create_criterion,
     create_dataset,
 )
 from utils.misc import check_model_memory
-from utils.engine import train_one_epoch_retina, evaluate, plot_img
+from utils.engine import train_one_epoch_retina, evaluate_retina, plot_img
 
 
 @record
@@ -179,7 +178,7 @@ def main(args):
         )
 
         if global_rank == 0 or not args.distributed:
-            stats = evaluate(
+            stats = evaluate_retina(
                 model=model,
                 dataloader=val_loader,
                 device=device,
