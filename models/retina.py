@@ -195,7 +195,7 @@ class RetinaNet(nn.Module):
         # Proposal matcher
         if proposal_matcher is None:
             proposal_matcher = det_utils.Matcher(
-                high_threshold=0.5, low_threshold=0.4, allow_low_quality_matches=False
+                high_threshold=0.5, low_threshold=0.4, allow_low_quality_matches=True
             )
 
         self.proposal_matcher = proposal_matcher
