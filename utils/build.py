@@ -73,18 +73,32 @@ def create_dataset(args):
         train_images_dir, train_label_path, val_images_dir, val_label_path = (
             read_data_detection_coco(args.root_data_path)
         )
-        train_dataset = COCODataset(
-            image_dir=train_images_dir,
-            label_path=train_label_path,
-            transform=DetectionTransform(
-                make_coco_transforms("train", args.image_size)
-            ),
-        )
-        val_dataset = COCODataset(
-            image_dir=val_images_dir,
-            label_path=val_label_path,
-            transform=DetectionTransform(make_coco_transforms("val", args.image_size)),
-        )
+        if args.no_transform:
+            train_dataset = COCODataset(
+                image_dir=train_images_dir,
+                label_path=train_label_path,
+                transform=None,
+            )
+            val_dataset = COCODataset(
+                image_dir=val_images_dir,
+                label_path=val_label_path,
+                transform=None,
+            )
+        else:
+            train_dataset = COCODataset(
+                image_dir=train_images_dir,
+                label_path=train_label_path,
+                transform=DetectionTransform(
+                    make_coco_transforms("train", args.image_size)
+                ),
+            )
+            val_dataset = COCODataset(
+                image_dir=val_images_dir,
+                label_path=val_label_path,
+                transform=DetectionTransform(
+                    make_coco_transforms("val", args.image_size)
+                ),
+            )
 
     return train_dataset, val_dataset
 
