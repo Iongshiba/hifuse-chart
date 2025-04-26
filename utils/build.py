@@ -79,12 +79,16 @@ def create_dataset(args):
             train_dataset = COCODataset(
                 image_dir=train_images_dir,
                 label_path=train_label_path,
-                transform=ImageOnlyTransform(image_normalize()),
+                transform=ImageOnlyTransform(
+                    make_coco_transforms("train", args.image_size)
+                ),
             )
             val_dataset = COCODataset(
                 image_dir=val_images_dir,
                 label_path=val_label_path,
-                transform=ImageOnlyTransform(image_normalize()),
+                transform=ImageOnlyTransform(
+                    make_coco_transforms("val", args.image_size)
+                ),
             )
         else:
             train_dataset = COCODataset(
