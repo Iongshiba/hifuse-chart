@@ -182,6 +182,15 @@ class DetectionTransform:
         return image, target
 
 
+class ImageOnlyTransform:
+    def __init__(self, image_transforms):
+        self.image_transforms = image_transforms
+
+    def __call__(self, image, target):
+        image = self.image_transforms(image)
+        return image, target
+
+
 def make_coco_transforms(image_set, img_size):
 
     normalize = T.Compose(
@@ -206,3 +215,10 @@ def make_coco_transforms(image_set, img_size):
                 normalize,
             ]
         )
+
+
+def image_normalize():
+    normalize = T.Compose(
+        [T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])]
+    )
+    return normalize
