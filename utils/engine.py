@@ -156,9 +156,8 @@ def evaluate_retina(model, dataloader, device, epoch):
     bar = tqdm(dataloader, file=sys.stdout, desc=f"Eval Epoch {epoch}")
     for images, _, items in bar:
         batch_size = len(images)
-        images = [img.to(device) for img in images]
 
-        preds = model(images)
+        preds = model(images.to(device))
 
         for b in range(batch_size):
             info = items[b]
