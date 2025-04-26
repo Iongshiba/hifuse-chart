@@ -179,7 +179,9 @@ def read_data_detection_coco(root: str):
         val_label_path = os.path.join(COCO_dir, "val.json")
         return train_images_dir, train_label_path, val_images_dir, val_label_path
     else:
-        raise ("Could not find the dataset, please check the path or the format.")
+        raise Exception(
+            "Could not find the dataset, please check the path or the format."
+        )
 
 
 class DetectionTransform:
