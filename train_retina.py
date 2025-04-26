@@ -152,8 +152,8 @@ def main(args):
     start_epoch = 0
 
     if args.RESUME:
-        assert args.cp_path != "", "checkpoint path is None when resume training"
-        path_checkpoint = args.cp_path + "ckpt_best.pth"
+        assert args.root_path != "", "checkpoint path is None when resume training"
+        path_checkpoint = args.root_path + "/model_weight/checkpoint/ckpt_best.pth"
         print("model continue train")
         checkpoint = torch.load(path_checkpoint)
         model.load_state_dict(checkpoint["net"])
@@ -206,10 +206,12 @@ def main(args):
 
             # logger.log(plot_stats)
 
-            if best_map < stats["eval/mAP5095"]:
-                if not os.path.isdir("./model_weight"):
-                    os.mkdir("./model_weight")
-                torch.save(model.state_dict(), "./model_weight/best_model.pth")
+            if best_map < stats["map"]:
+                if not os.path.isdir(args.root_path + "/model_weight"):
+                    os.mkdir(args.root_path + "/model_weight")
+                torch.save(
+                    model.state_dict(), args.root_path + "/model_weight/best_model.pth"
+                )
                 print("Saved epoch{} as new best model".format(epoch))
                 best_map = stats["eval/mAP5095"]
 
@@ -220,11 +222,12 @@ def main(args):
                     "epoch": epoch,
                     "lr_schedule": lr_scheduler.state_dict(),
                 }
-                if not os.path.isdir("./model_weight/checkpoint"):
-                    os.mkdir("./model_weight/checkpoint")
+                if not os.path.isdir(args.root_path + "/model_weight"):
+                    os.mkdir(args.root_path + "/model_weight")
                 torch.save(
                     checkpoint,
-                    args.cp_path + "ckpt_best_%s.pth" % (str(epoch)),
+                    args.root_path
+                    + "/model_weight/checkpoint/ckpt_best_%s.pth" % (str(epoch)),
                 )
 
     # total = sum([param.nelement() for param in model.parameters()])
@@ -243,7 +246,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-norm", type=float, default=0.1)
     parser.add_argument("--he-gain", type=float, default=1.5)
     parser.add_argument("--RESUME", type=bool, default=False)
-    parser.add_argument("--cp-path", type=str, default="")
+    parser.add_argument("--root-path", type=str, default="")
 
     parser.add_argument("--data", type=str, default="coco")
     parser.add_argument(
