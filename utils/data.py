@@ -150,20 +150,35 @@ def read_data_detection_coco(root: str):
     train_label_path = os.path.join(root, "train.json")
     val_label_path = os.path.join(root, "val.json")
 
-    assert os.path.exists(
-        train_images_dir
-    ), f"images directory: {train_images_dir} does not exist."
-    assert os.path.exists(
-        val_images_dir
-    ), f"images directory: {val_images_dir} does not exist."
-    assert os.path.exists(
-        train_label_path
-    ), f"images directory: {train_label_path} does not exist."
-    assert os.path.exists(
-        val_label_path
-    ), f"images directory: {val_label_path} does not exist."
+    PNG_dir = os.path.join(root, "PNG")
+    COCO_dir = os.path.join(root, "COCO")
 
-    return train_images_dir, train_label_path, val_images_dir, val_label_path
+    if (
+        os.path.exists(train_images_dir)
+        and os.path.exists(train_images_dir)
+        and os.path.exists(train_label_path)
+        and os.path.exists(val_label_path)
+    ):
+        return train_images_dir, train_label_path, val_images_dir, val_label_path
+    # assert os.path.exists(
+    #     train_images_dir
+    # ), f"images directory: {train_images_dir} does not exist."
+    # assert os.path.exists(
+    #     val_images_dir
+    # ), f"images directory: {val_images_dir} does not exist."
+    # assert os.path.exists(
+    #     train_label_path
+    # ), f"images directory: {train_label_path} does not exist."
+    # assert os.path.exists(
+    #     val_label_path
+    # ), f"images directory: {val_label_path} does not exist."
+    elif os.path.exists(PNG_dir) and os.path.exists(COCO_dir):
+        train_images_dir = PNG_dir
+        val_images_dir = PNG_dir
+        train_label_path = os.path.join(COCO_dir, "train.json")
+        val_label_path = os.path.join(COCO_dir, "val.json")
+    else:
+        raise ("Could not find the dataset, please check the path or the format.")
 
 
 class DetectionTransform:
