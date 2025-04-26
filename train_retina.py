@@ -66,7 +66,7 @@ def main(args):
     ##                          ##
     ##############################
 
-    if global_rank == 0 or not args.distributed:
+    if global_rank == 0 or not args.distributed and args.enable_logger:
         wandb.login(key=os.environ["WANDB_API_KEY"])
         logger = wandb.init(project="trifuse", config=args)
         logger.define_metric("eval/precision", summary="max")
@@ -211,7 +211,8 @@ def main(args):
                 epoch=epoch,
             )
 
-            logger.log(stats)
+            if logger is not None:
+                logger.log(stats)
 
             # tags = [
             #     "train_loss",
@@ -285,6 +286,7 @@ if __name__ == "__main__":
         type=str,
         default=r"D:\Dataset\doclaynet\doclaynet_yolo_dataset_v1\images",
     )
+    parser.add_argument("--enable-logger", type=bool, default=True)
     parser.add_argument("--train-data-path", type=str, default="")
     parser.add_argument("--val-data-path", type=str, default="")
     parser.add_argument("--num-plot", type=int, default=4)
