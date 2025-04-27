@@ -297,8 +297,9 @@ def train_one_epoch_retina(
         anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
 
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-            cls_loss = model(images, anns)["classification"]
-            bbox_loss = model(images, anns)["bbox_regression"]
+            loss_dict = model(images, anns)
+            cls_loss = loss_dict["classification"]
+            bbox_loss = loss_dict["bbox_regression"]
             loss = cls_loss + bbox_loss
 
         scaler.scale(loss).backward()
