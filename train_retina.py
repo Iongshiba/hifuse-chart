@@ -295,7 +295,7 @@ def main(args):
         head=args.head,
     )
     model = RetinaNet(
-        backbone=backbone, num_classes=arg.num_classes, min_size=224, max_size=224
+        backbone=backbone, num_classes=args.num_classes, min_size=224, max_size=224
     )
     model = (
         DistributedDataParallel(
