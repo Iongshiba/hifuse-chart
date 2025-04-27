@@ -142,7 +142,7 @@ class COCODataset(Dataset):
         boxes = []
         for label in labels:
             box = label["bbox"]
-            class_id = int(label["category_id"]) + 1
+            class_id = int(label["category_id"])
             x_min = float(box[0])
             y_min = float(box[1])
             width = float(box[2])
