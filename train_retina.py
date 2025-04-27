@@ -443,7 +443,6 @@ if __name__ == "__main__":
         type=str,
         default=r"D:\Dataset\doclaynet\doclaynet_yolo_dataset_v1\images",
     )
-    parser.add_argument("--enable-logger", type=bool, default=True)
     parser.add_argument("--train-data-path", type=str, default="")
     parser.add_argument("--val-data-path", type=str, default="")
     parser.add_argument("--num-plot", type=int, default=4)
@@ -453,6 +452,7 @@ if __name__ == "__main__":
     parser.add_argument("--freeze-layers", type=bool, default=False)
     parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--amp", action="store_true")
+    parser.add_argument("--disable-logger", action="store_true", default=False)
 
     opt = parser.parse_args()
     print(opt)
