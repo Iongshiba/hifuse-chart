@@ -235,6 +235,7 @@ def main(args):
     ##                          ##
     ##############################
 
+    logger = None
     if global_rank == 0 or not args.distributed and args.enable_logger:
         print("Wandb logger is enabled. Beginning wandb initialization...")
         wandb.login(key=os.environ["WANDB_API_KEY"])
@@ -297,7 +298,7 @@ def main(args):
     )
     model = RetinaNet(
         backbone=backbone, num_classes=args.num_classes, min_size=224, max_size=224
-    )
+    ).to(device)
     model = (
         DistributedDataParallel(
             model, device_ids=[local_rank], find_unused_parameters=True
