@@ -117,7 +117,7 @@ class COCODataset(Dataset):
                     [box[1:5] for box in anns], dtype=torch.float32
                 ),
             }
-        if labels.numel() > 0:
+        if label["labels"].numel() > 0:
             print(
                 f"[DEBUG] idx={item}  labels.min={label['labels'].min().item()}  labels.max={label['labels'].max().item()}  unique={label['labels'].unique().tolist()}"
             )
