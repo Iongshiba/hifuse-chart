@@ -149,7 +149,8 @@ class COCODataset(Dataset):
 
             x_max = x_min + width
             y_max = y_min + height
-            boxes.append([class_id, x_min, y_min, x_max, y_max])
+            if x_min + y_min + x_max + y_max != 0:
+                boxes.append([class_id, x_min, y_min, x_max, y_max])
 
         return boxes
 
