@@ -438,9 +438,9 @@ class TriFuse(nn.Module):
         # return self.head(x_f)
 
         if isinstance(self.head, RetinaNet):
-            # feature_list = [x_1, x_2, x_3, x_4]
-            # keys = [f"feat{i}" for i in range(len(feature_list))]
-            # return OrderedDict(zip(keys, feature_list))
+            feature_list = [x_1, x_2, x_3, x_4]
+            keys = [f"feat{i}" for i in range(len(feature_list))]
+            return OrderedDict(zip(keys, feature_list))
             if self.training:
                 assert targets is not None, "During training, targets must be provided!"
                 return self.head([x_1, x_2, x_3, x_4], imgs, targets)

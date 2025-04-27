@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple, Dict, Union
 
 import torch
 import torch.nn as nn
-from torch import Tensor, gt
+from torch import Tensor
 import torch.nn.functional as F
 import torchvision.models.detection._utils as det_utils
 from torchvision.ops import clip_boxes_to_image
@@ -390,27 +390,8 @@ class RetinaNet(nn.Module):
             foreground_idxs_per_image = matched_idxs_per_image >= 0
             num_foreground = foreground_idxs_per_image.sum()
 
-            labels = targets_per_image["labels"]
-            print(
-                f"  labels: min={labels.min().item() if labels.numel()>0 else 'none'}, "
-                f"max={labels.max().item() if labels.numel()>0 else 'none'}, "
-                f"unique={labels.tolist()}"
-            )
-            print(f"  matched_idxs: {matched_idxs_per_image.tolist()}")
-            print(f"  fg_mask.sum = {num_foreground}")
-            print(f"  logits_per_image.shape = {cls_logits_per_image.shape}")
-
             # create the target classification
             gt_classes_target = torch.zeros_like(cls_logits_per_image)
-
-            matched_fg_idxs = matched_idxs_per_image[foreground_idxs_per_image]
-            print("matched for fg anchors:", matched_fg_idxs)
-
-            labels = targets_per_image["labels"]
-            selected_labels = labels[matched_fg_idxs]
-            print("selected_labels:", selected_labels)
-
-            gt_classes_target[foreground_idxs_per_image, selected_labels] = 1.0
 
             gt_classes_target[
                 foreground_idxs_per_image,
