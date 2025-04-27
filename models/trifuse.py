@@ -201,6 +201,8 @@ class TriFuse(nn.Module):
         # The channels of stage4 output feature matrix
         self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
 
+        self.out_channels = out_channels
+
         # split image into non-overlapping patches
         self.patch_embed = PatchEmbed(
             patch_size=patch_size,
