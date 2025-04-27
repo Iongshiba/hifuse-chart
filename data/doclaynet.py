@@ -106,10 +106,11 @@ class COCODataset(Dataset):
 
         anns = self._get_label(img_item["id"])
         if len(anns) == 0:
-            label = {
-                "labels": torch.as_tensor([0], dtype=torch.int64),
-                "boxes": torch.zeros(1, 4, dtype=torch.float32),
-            }
+            # label = {
+            #     "labels": torch.as_tensor([0], dtype=torch.int64),
+            #     "boxes": torch.zeros(1, 4, dtype=torch.float32),
+            # }
+            label = None
         else:
             label = {
                 "labels": torch.as_tensor([box[0] for box in anns], dtype=torch.int64),
