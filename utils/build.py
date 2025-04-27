@@ -75,7 +75,7 @@ def create_dataset(args):
         train_images_dir, train_label_path, val_images_dir, val_label_path = (
             read_data_detection_coco(args.root_data_path)
         )
-        if args.no_transform:
+        if args.disable_bbox_transform:
             train_dataset = COCODataset(
                 image_dir=train_images_dir,
                 label_path=train_label_path,

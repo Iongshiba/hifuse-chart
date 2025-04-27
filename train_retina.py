@@ -437,7 +437,6 @@ if __name__ == "__main__":
     parser.add_argument("--root-path", type=str, default="")
 
     parser.add_argument("--data", type=str, default="coco")
-    parser.add_argument("--no-transform", type=bool, default=False)
     parser.add_argument(
         "--root-data-path",
         type=str,
@@ -453,6 +452,7 @@ if __name__ == "__main__":
     parser.add_argument("--distributed", action="store_true")
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--disable-logger", action="store_true", default=False)
+    parser.add_argument("--disable-bbox-transform", action="store_true", default=False)
 
     opt = parser.parse_args()
     print(opt)
