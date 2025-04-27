@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 import numpy as np
-from typing import Optional
+from typing import Optional, OrderedDict
 
 from models.detr import DETR
 from models.retina import RetinaNet
