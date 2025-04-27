@@ -288,29 +288,29 @@ def main(args):
     ##             ##
     #################
 
-    # model = TriFuse_Tiny(num_classes=args.num_classes, head="retina").to(device)
-    anchor_sizes = tuple(
-        (s, int(s * 2 ** (1 / 3)), int(s * 2 ** (2 / 3)))
-        for s in [32, 64, 128, 256]  # only 4 levels!
-    )
-    aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)  # length = 4
-
-    anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios)
-
-    backbone = TriFuse(
-        depths=(2, 2, 6, 2),
-        conv_depths=(2, 2, 6, 2),
-        num_classes=args.num_classes,
-        out_channels=256,
-        head=args.head,
-    )
-    model = RetinaNet(
-        backbone=backbone,
-        num_classes=args.num_classes,
-        min_size=224,
-        max_size=224,
-        anchor_generator=anchor_generator,
-    ).to(device)
+    model = TriFuse_Tiny(num_classes=args.num_classes, head="retina").to(device)
+    # anchor_sizes = tuple(
+    #     (s, int(s * 2 ** (1 / 3)), int(s * 2 ** (2 / 3)))
+    #     for s in [32, 64, 128, 256]  # only 4 levels!
+    # )
+    # aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)  # length = 4
+    #
+    # anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios)
+    #
+    # backbone = TriFuse(
+    #     depths=(2, 2, 6, 2),
+    #     conv_depths=(2, 2, 6, 2),
+    #     num_classes=args.num_classes,
+    #     out_channels=256,
+    #     head=args.head,
+    # )
+    # model = RetinaNet(
+    #     backbone=backbone,
+    #     num_classes=args.num_classes,
+    #     min_size=224,
+    #     max_size=224,
+    #     anchor_generator=anchor_generator,
+    # ).to(device)
     model = (
         DistributedDataParallel(
             model, device_ids=[local_rank], find_unused_parameters=True
