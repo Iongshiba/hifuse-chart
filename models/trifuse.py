@@ -130,6 +130,7 @@ class TriFuse(nn.Module):
         num_anchors=9,
         patch_size=4,
         in_chans=3,
+        out_channels=256,
         embed_dim=32,
         depths=(2, 2, 2, 2),
         num_heads=(4, 8, 16, 32),
@@ -300,10 +301,10 @@ class TriFuse(nn.Module):
 
         ###### Feature Pyramid Network Setting ######
 
-        self.ppm = PyramidPoolingModule(in_channels=256, out_channels=256)
-        self.p4 = FPN_Block(hff_in_channels=128, out_channels=256)
-        self.p3 = FPN_Block(hff_in_channels=64, out_channels=256)
-        self.p2 = FPN_Block(hff_in_channels=32, out_channels=256)
+        self.ppm = PyramidPoolingModule(in_channels=256, out_channels=out_channels)
+        self.p4 = FPN_Block(hff_in_channels=128, out_channels=out_channels)
+        self.p3 = FPN_Block(hff_in_channels=64, out_channels=out_channels)
+        self.p2 = FPN_Block(hff_in_channels=32, out_channels=out_channels)
 
         ###### Detection Head Setting ######
 
