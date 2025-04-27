@@ -391,8 +391,6 @@ class RetinaNet(nn.Module):
             num_foreground = foreground_idxs_per_image.sum()
 
             labels = targets_per_image["labels"]
-            print(f"\n[DBG] === Image {img_i} ===")
-
             print(
                 f"  labels: min={labels.min().item() if labels.numel()>0 else 'none'}, "
                 f"max={labels.max().item() if labels.numel()>0 else 'none'}, "
