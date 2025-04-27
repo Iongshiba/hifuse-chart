@@ -292,6 +292,7 @@ def main(args):
         depths=(2, 2, 6, 2),
         conv_depths=(2, 2, 6, 2),
         num_classes=args.num_classes,
+        out_channels=256,
         head=args.head,
     )
     model = RetinaNet(
