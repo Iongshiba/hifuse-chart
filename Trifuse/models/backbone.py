@@ -125,9 +125,6 @@ class TriFuseBackbone(nn.Module):
     def __init__(
         self,
         num_classes,
-        fuse_fm=True,
-        head="detr",
-        num_anchors=9,
         patch_size=4,
         in_chans=3,
         out_channels=256,
@@ -279,11 +276,6 @@ class TriFuseBackbone(nn.Module):
 
         self.norm = norm_layer(self.num_features)
         self.avgpool = nn.AdaptiveAvgPool1d(1)
-        self.head = (
-            nn.Linear(self.num_features, num_classes)
-            if num_classes > 0
-            else nn.Identity()
-        )
         self.apply(self._init_weights)
 
         ###### Hierachical Feature Fusion Block Setting #######
@@ -307,28 +299,6 @@ class TriFuseBackbone(nn.Module):
         self.p4 = FPN_Block(hff_in_channels=128, out_channels=out_channels)
         self.p3 = FPN_Block(hff_in_channels=64, out_channels=out_channels)
         self.p2 = FPN_Block(hff_in_channels=32, out_channels=out_channels)
-
-        ###### Detection Head Setting ######
-
-        if head == "retina":
-            head = RetinaNet(
-                num_classes=self.num_classes,
-                out_channels=256,
-                fuse_fm=fuse_fm,
-                num_anchors=num_anchors,
-            )
-        elif head == "detr":
-            head = DETR(
-                in_channels=embed_dim * 8 * 4,
-                num_classes=1,
-                num_queries=100,
-                hidden_dim=256,
-            )
-        else:
-            raise ValueError(
-                "Wrong head selection, only 2 options allowed: 'retina' | 'detr'"
-            )
-        self.head = head
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -401,15 +371,10 @@ class TriFuseBackbone(nn.Module):
         # print(x_f_4.shape)
 
         ###### Feature Pyramid Network ######
-        # [1, 96, 56, 56]
-        # [1, 192, 28, 28]
-        # [1, 384, 14, 14]
-        # [1, 768, 7, 7]
-
-        x_p_4 = self.ppm(x_f_4)
-        x_p_3 = self.p4(x_p_4, x_f_3)
-        x_p_2 = self.p3(x_p_3, x_f_2)
-        x_p_1 = self.p2(x_p_2, x_f_1)
+        x_p_4 = self.ppm(x_f_4)  # [1, 96, 56, 56]
+        x_p_3 = self.p4(x_p_4, x_f_3)  # [1, 192, 28, 28]
+        x_p_2 = self.p3(x_p_3, x_f_2)  # [1, 384, 14, 14]
+        x_p_1 = self.p2(x_p_2, x_f_1)  # [1, 768, 7, 7]
 
         # print("Feature Pyramid Network")
         # print(x_p_1.shape)
@@ -417,37 +382,7 @@ class TriFuseBackbone(nn.Module):
         # print(x_p_3.shape)
         # print(x_p_4.shape)
 
-        ###### Feature Fusion ######
-        # x_4 = F.interpolate(x_p_4, scale_factor=8, mode="bilinear", align_corners=False)
-        # x_3 = F.interpolate(x_p_3, scale_factor=4, mode="bilinear", align_corners=False)
-        # x_2 = F.interpolate(x_p_2, scale_factor=2, mode="bilinear", align_corners=False)
-        # x_1 = x_p_1
-        x_4 = x_p_4
-        x_3 = x_p_3
-        x_2 = x_p_2
-        x_1 = x_p_1
-
-        # print("Feature maps") -> (B, 256, 56, 56)
-        # print(x_1.shape)
-        # print(x_2.shape)
-        # print(x_3.shape)
-        # print(x_4.shape)
-
-        # x_f = torch.cat([x_4, x_3, x_2, x_1], dim=1)
-
-        # return self.head(x_f)
-
-        if isinstance(self.head, RetinaNet):
-            feature_list = [x_1, x_2, x_3, x_4]
-            keys = [f"feat{i}" for i in range(len(feature_list))]
-            return OrderedDict(zip(keys, feature_list))
-            if self.training:
-                assert targets is not None, "During training, targets must be provided!"
-                return self.head([x_1, x_2, x_3, x_4], imgs, targets)
-            else:
-                return self.head([x_1, x_2, x_3, x_4], imgs, None)
-        else:  # DETR
-            return self.head([x_1, x_2, x_3, x_4])
+        return [x_p_1, x_p_2, x_p_3, x_p_4]
 
 
 ##### Local Feature Block Component #####
