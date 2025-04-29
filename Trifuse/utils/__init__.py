@@ -27,7 +27,8 @@ def is_dir_writeable(dir_path: Union[str, Path]) -> bool:
 # Ultralytics implementation. Source: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/utils/__init__.py
 # Changes made to the original code:
 # - Replaced LOGGER.warning() with print statement
-def get_user_config_dir(sub_dir="Ultralytics"):
+# - Replace sub_dir with "Trifuse"
+def get_user_config_dir(sub_dir="Trifuse"):
     """
     Return the appropriate config directory based on the environment operating system.
 
@@ -64,4 +65,10 @@ def get_user_config_dir(sub_dir="Ultralytics"):
     return path
 
 
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[1]
 USER_CONFIG_DIR = Path(get_user_config_dir())
+DEFAULT_CONFIG_FILE = ROOT / "configs/default.yaml"
+
+RANK = int(os.getenv("RANK", -1))
+LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))
