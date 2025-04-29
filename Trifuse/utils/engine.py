@@ -38,7 +38,7 @@ def train_one_epoch(
 
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
             logits = model(images)
-            loss_dict = model.compute_loss(logits, criterion, targets)
+            loss_dict = model.compute_loss(logits, targets, criterion)
             loss = loss_dict["tloss"]
 
         scaler.scale(loss).backward()
