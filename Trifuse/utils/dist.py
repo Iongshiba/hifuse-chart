@@ -6,7 +6,7 @@
 #   Licensed under the GNU Affero General Public License v3.0
 #   Source: ultralytics/engine/utils/dist.py @ <commit-hash or tag>
 #
-# My changes:
+# Changes made to the original code:
 #   – generate_ddp_file(): rewrote to produce a custom torchrun script
 #   - generate_ddp_command(): changed dist_cmd to "torch.distributed.launch"
 
