@@ -2,7 +2,10 @@ import math
 import copy
 import torch
 
-from models.trifuse import TriFuse
+from Trifuse.models.backbone import TriFuseBackbone
+from Trifuse.models.retina import RetinaNet
+from Trifuse.models.detr import DETR
+
 from models.detr import SetCriterion
 from utils.data import (
     read_data_detection_yolo,
@@ -14,35 +17,55 @@ from utils.data import (
 from data.doclaynet import YOLODataset, COCODataset
 
 
-def TriFuse_Tiny(num_classes: int, head: str = "detr"):
+def build_backbone(num_classes: int, variant: str = "tiny"):
+    assert (
+        isinstance(num_classes, int) and num_classes > 0
+    ), "num_classes should be a positive integer"
+    assert variant in [
+        "tiny",
+        "small",
+        "base",
+    ], f"Unknown variant: {variant}, expected 'tiny', 'small', or 'base'"
 
-    model = TriFuse(
-        depths=(2, 2, 2, 2),
-        conv_depths=(2, 2, 2, 2),
+    if variant == "tiny":
+        depths = (2, 2, 2, 2)
+        conv_depths = (2, 2, 2, 2)
+    elif variant == "small":
+        depths = (2, 2, 6, 2)
+        conv_depths = (2, 2, 6, 2)
+    else:  # base
+        depths = (2, 2, 18, 2)
+        conv_depths = (2, 2, 18, 2)
+
+    backbone = TriFuseBackbone(
+        depths=depths,
+        conv_depths=conv_depths,
         num_classes=num_classes,
-        head=head,
     )
-    return model
+
+    return backbone
 
 
-def TriFuse_Small(num_classes: int, head: str = "detr"):
-    model = TriFuse(
-        depths=(2, 2, 6, 2),
-        conv_depths=(2, 2, 6, 2),
-        num_classes=num_classes,
-        head=head,
-    )
-    return model
+def build_detect_head(
+    num_classes: int,
+    head_type: str,
+):
+    assert head_type in [
+        "detr",
+        "retina",
+    ], f"Unknown head: {head_type}, expected 'detr' or 'retina'"
 
+    if head_type == "retina":
+        head = RetinaNet(
+            num_classes=num_classes,
+        )
+    else:
+        head = DETR(
+            in_channels=32 * 8 * 4,
+            num_classes=num_classes,
+        )
 
-def TriFuse_Base(num_classes: int, head: str = "detr"):
-    model = TriFuse(
-        depths=(2, 2, 18, 2),
-        conv_depths=(2, 2, 18, 2),
-        num_classes=num_classes,
-        head=head,
-    )
-    return model
+    return head
 
 
 def create_dataset(args):
