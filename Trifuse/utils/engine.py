@@ -32,14 +32,14 @@ def train_one_epoch(
 
     bar = tqdm(dataloader, file=sys.stdout, disable=global_rank != 0)
     for step, data in enumerate(bar):
-        images, anns, _ = data
+        images, targets, _ = data
         images = images.to(device)
-        anns = [{k: v.to(device) for k, v in t.items()} for t in anns]
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
         with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-            preds = model(images)
-            losses = criterion(preds, anns)
-            loss = sum(losses.values())
+            logits = model(images)
+            loss_dict = model.compute_loss(logits, criterion, targets)
+            loss = loss_dict["tloss"]
 
         scaler.scale(loss).backward()
 
@@ -161,7 +161,6 @@ def evaluate_retina(model, dataloader, device, epoch):
         for b in range(batch_size):
             info = items[b]
             img_id = info["id"]
-            # img_h, img_w = info["height"], info["width"]
             images_coco.append(info)
 
             pred = preds[b]
