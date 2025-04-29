@@ -4,20 +4,32 @@ import wandb
 import os
 import yaml
 from pathlib import Path
+from torch import nn
 from Trifuse.utils import DEFAULT_CONFIG_FILE, RANK
-from Trifuse.utils.build import build_backbone, build_detect_head
+from Trifuse.utils.build import build_model
 from Trifuse.utils.trainer import TriFuseTrainer
+
+
+class TriFuseDetector(nn.Module):
+    def __init__(self, num_classes: int, head_type: str, variant: str = "tiny"):
+        super(TriFuseDetector, self).__init__()
+        self.backbone, self.head = build_model(num_classes, head_type, variant)
+
+    def forward(self, x):
+        return self.head(self.backbone(x))
+
+    def compute_loss(self, outputs, targets, criterion):
+        return self.head.compute_loss(outputs, targets, criterion)
 
 
 class TriFuse:
     def __init__(
         self,
-        head: str,
         num_classes: int,
+        head: str,
         variant: str = "tiny",
     ):
-        self.backbone = build_backbone(num_classes, variant)
-        self.head = build_detect_head(num_classes, head)
+        self.model = TriFuseDetector(num_classes, head, variant)
         self.args = None
         self.logger = None
         self.trainer = None
