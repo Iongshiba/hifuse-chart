@@ -14,7 +14,7 @@ from Trifuse.utils.dist import (
 
 
 class TriFuseTrainer:
-    def __init__(self, args: Namespace):
+    def __init__(self, args: dict):
         self.epochs = None
         self.batch_size = None
         self.save = None
@@ -29,20 +29,21 @@ class TriFuseTrainer:
         self.amp = None
         self.freeze = None
         self.dropout = None
+        self.world_size = -1
 
-        for k, v in vars(args).items():
+        for k, v in args.items():
             setattr(self, k, v)
 
     def train(self):
         if isinstance(self.device, str):
-            world_size = len(self.device.split(","))
+            self.world_size = len(self.device.split(","))
         elif isinstance(self.device, (list, tuple)):
-            world_size = len(self.device)
+            self.world_size = len(self.device)
         else:
-            world_size = 1 if torch.cuda.is_available() else 0
+            self.world_size = 1 if torch.cuda.is_available() else 0
 
-        if world_size > 1:
-            cmd, file = generate_ddp_command(world_size, self)
+        if self.world_size > 1 and "LOCAL_RANK" not in os.environ:
+            cmd, file = generate_ddp_command(self.world_size, self)
             try:
                 subprocess.run(cmd, check=True)
             except Exception as e:
@@ -53,16 +54,24 @@ class TriFuseTrainer:
             self._train()
 
     def _train(self):
-        pass
+        if self.world_size > 1:
+            self._ddp_init()
+        self._train_init()
 
-    def _ddp_init(self, world_size: int):
-        torch.cuda.set_device(RANK)
-        self.device = torch.device("cuda", RANK)
+    def _ddp_init(self):
+        torch.cuda.set_device(LOCAL_RANK)
+        self.device = torch.device("cuda", LOCAL_RANK)
         dist.init_process_group(
             backend="nccl" if dist.is_nccl_available() else "gloo",
-            rank=RANK,
-            world_size=world_size,
+            rank=LOCAL_RANK,
+            world_size=self.world_size,
         )
 
     def _train_init(self):
+        # Model
+        # Freeze layers
+        # Check AMP
+        # Dataloaders
+        # Optimizer
+        # Scheduler
         pass
