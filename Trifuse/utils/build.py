@@ -17,7 +17,20 @@ from utils.data import (
 from data.doclaynet import YOLODataset, COCODataset
 
 
-def build_backbone(num_classes: int, variant: str = "tiny"):
+def build_model(num_classes: int, head_type: str, variant: str = "tiny"):
+    assert (
+        isinstance(num_classes, int) and num_classes > 0
+    ), "num_classes should be a positive integer"
+    assert variant in [
+        "tiny",
+        "small",
+        "base",
+    ], f"Unknown variant: {variant}, expected 'tiny', 'small', or 'base'"
+    assert head_type in [
+        "detr",
+        "retina",
+    ], f"Unknown head: {head_type}, expected 'detr' or 'retina'"
+
     assert (
         isinstance(num_classes, int) and num_classes > 0
     ), "num_classes should be a positive integer"
@@ -42,19 +55,6 @@ def build_backbone(num_classes: int, variant: str = "tiny"):
         conv_depths=conv_depths,
         num_classes=num_classes,
     )
-
-    return backbone
-
-
-def build_detect_head(
-    num_classes: int,
-    head_type: str,
-):
-    assert head_type in [
-        "detr",
-        "retina",
-    ], f"Unknown head: {head_type}, expected 'detr' or 'retina'"
-
     if head_type == "retina":
         head = RetinaNet(
             num_classes=num_classes,
@@ -65,7 +65,7 @@ def build_detect_head(
             num_classes=num_classes,
         )
 
-    return head
+    return backbone, head
 
 
 def create_dataset(args):
