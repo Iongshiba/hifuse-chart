@@ -1,16 +1,32 @@
-import os
+from argparse import Namespace
 import copy
-import torch
+import os
 import pickle
-import numpy as np
-import torch.nn as nn
-import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
+import numpy as np
+import yaml
+import torch
+import torch.nn as nn
+from pathlib import Path
+from typing import Optional, Union
 from matplotlib.patches import Rectangle
 from torchvision.ops.boxes import box_area
 
-import torch.nn as nn
-import matplotlib.pyplot as plt
+
+def load_config(
+    cfg_path: Union[str, Path], overrides: Optional[dict] = None
+) -> Namespace:
+    if isinstance(cfg_path, (str, Path)):
+        with open(cfg_path, errors="ignore", encoding="utf-8") as f:
+            data = f.read()
+            cfg = yaml.safe_load(data) or {}
+    if overrides:
+        for key, value in overrides.items():
+            cfg[key] = value
+
+    cfg = Namespace(**cfg)
+    return cfg
 
 
 def write_pickle(list_info: list, file_name: str):
