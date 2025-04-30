@@ -1,7 +1,7 @@
 import copy
 import math
 import os
-from typing import Tuple, Union
+from typing import Union
 
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
