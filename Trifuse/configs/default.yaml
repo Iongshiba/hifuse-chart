@@ -1,14 +1,25 @@
+image_size: 224
 epochs: 50
 batch_size: 16
 save: True
 save_every: 10
 device: 
-workers: 4
+num_workers: 8
 root: 
-optimizer: AdamW
+dataset_root:
+optimizer: adamw
+wd: 0.0001
+lr: 0.0001
+warmup: true
+warmup_epochs: 1 
+data_type: coco
+disable_bbox_transform: False
 enable_logger: True 
 seed: 0 
 resume: False 
+resume_epoch: 0
 amp: False 
-freeze: None 
+max_norm: 0.1
+freeze_layers: False 
 dropout: 0.0 
+pin_memory: True
