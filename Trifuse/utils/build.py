@@ -1,20 +1,23 @@
-import math
 import copy
-import torch
+import math
+import os
+from typing import Tuple, Union
 
-from Trifuse.models.backbone import TriFuseBackbone
-from Trifuse.models.retina import RetinaNet
-from Trifuse.models.detr import DETR
+import torch
+from torch.utils.data import DataLoader, DistributedSampler
 
 from models.detr import SetCriterion
+from Trifuse.data.dataset import COCODataset, YOLOCOCODataset, YOLODataset
+from Trifuse.models.backbone import TriFuseBackbone
+from Trifuse.models.detr import DETR
+from Trifuse.models.retina import RetinaNet
 from utils.data import (
-    read_data_detection_yolo,
-    read_data_detection_coco,
-    make_coco_transforms,
     DetectionTransform,
     ImageOnlyTransform,
+    make_coco_transforms,
+    read_data_detection_coco,
+    read_data_detection_yolo,
 )
-from data.doclaynet import YOLODataset, COCODataset
 
 
 def build_model(num_classes: int, head_type: str, variant: str = "tiny"):
@@ -68,74 +71,98 @@ def build_model(num_classes: int, head_type: str, variant: str = "tiny"):
     return backbone, head
 
 
-def create_dataset(args):
+def build_dataset(
+    data_type: str,
+    image_size: int,
+    root_path: str,
+    disable_bbox_transform: bool = False,
+):
+    assert root_path is not None, f"Dataset root path {root_path} does not exist"
+
     train_dataset = None
     val_dataset = None
 
-    if args.data == "yolo":
+    if data_type == "yolo":
         train_images_path, train_images_label, val_images_path, val_images_label = (
-            read_data_detection_yolo(args.root_data_path)
+            read_data_detection_yolo(root_path)
         )
         train_dataset = YOLODataset(
             images_path=train_images_path,
             labels_path=train_images_label,
-            transform=DetectionTransform(
-                make_coco_transforms("train", args.image_size)
-            ),
+            transform=DetectionTransform(make_coco_transforms("train", image_size)),
         )
         val_dataset = YOLODataset(
             images_path=val_images_path,
             labels_path=val_images_label,
-            transform=DetectionTransform(make_coco_transforms("val", args.image_size)),
+            transform=DetectionTransform(make_coco_transforms("val", image_size)),
         )
-    elif args.data == "coco":
+    elif data_type == "coco":
         train_images_dir, train_label_path, val_images_dir, val_label_path = (
-            read_data_detection_coco(args.root_data_path)
+            read_data_detection_coco(root_path)
         )
-        if args.disable_bbox_transform:
+        if disable_bbox_transform:
             train_dataset = COCODataset(
                 image_dir=train_images_dir,
                 label_path=train_label_path,
-                transform=ImageOnlyTransform(
-                    make_coco_transforms("train", args.image_size)
-                ),
+                transform=ImageOnlyTransform(make_coco_transforms("train", image_size)),
             )
             val_dataset = COCODataset(
                 image_dir=val_images_dir,
                 label_path=val_label_path,
-                transform=ImageOnlyTransform(
-                    make_coco_transforms("val", args.image_size)
-                ),
+                transform=ImageOnlyTransform(make_coco_transforms("val", image_size)),
             )
         else:
             train_dataset = COCODataset(
                 image_dir=train_images_dir,
                 label_path=train_label_path,
-                transform=DetectionTransform(
-                    make_coco_transforms("train", args.image_size)
-                ),
+                transform=DetectionTransform(make_coco_transforms("train", image_size)),
             )
             val_dataset = COCODataset(
                 image_dir=val_images_dir,
                 label_path=val_label_path,
-                transform=DetectionTransform(
-                    make_coco_transforms("val", args.image_size)
-                ),
+                transform=DetectionTransform(make_coco_transforms("val", image_size)),
             )
 
     return train_dataset, val_dataset
 
 
-def create_criterion(num_classees: int, head: str = "detr"):
+def build_dataloader(
+    dataset: Union[COCODataset, YOLODataset, YOLOCOCODataset],
+    shuffle: bool,
+    batch_size: int,
+    rank: int,
+    num_workers: int = 8,
+    seed: int = 42,
+    pin_memory: bool = True,
+):
+    sampler = None if rank == -1 else DistributedSampler(dataset, shuffle=shuffle)
+    num_workers = min(
+        [os.cpu_count(), batch_size if batch_size > 1 else 0, num_workers]
+    )  # number of workers
+    generator = torch.Generator()
+    generator.manual_seed(seed + rank)
+    return DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=shuffle and sampler is None,
+        num_workers=num_workers,
+        sampler=sampler,
+        pin_memory=pin_memory,
+        collate_fn=dataset.collate_fn,
+        generator=generator,
+    )
+
+
+def build_criterion(num_classes: int, head: str = "detr"):
     criterion = None
     if head == "detr":
-        criterion = SetCriterion(num_classes=num_classees)
+        criterion = SetCriterion(num_classes=num_classes)
     elif head == "retina":
         criterion = None
     return criterion
 
 
-def create_lr_scheduler(
+def build_lr_scheduler(
     optimizer,
     num_step: int,
     epochs: int,
