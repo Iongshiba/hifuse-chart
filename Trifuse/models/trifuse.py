@@ -1,25 +1,14 @@
-from argparse import Namespace
-from typing import List, Union
-import wandb
 import os
-import yaml
 from pathlib import Path
+from typing import Union
+
 from torch import nn
+
+import wandb
 from Trifuse.utils import DEFAULT_CONFIG_FILE, RANK
 from Trifuse.utils.build import build_model
+from Trifuse.utils.misc import load_config
 from Trifuse.utils.trainer import TriFuseTrainer
-
-
-class TriFuseDetector(nn.Module):
-    def __init__(self, num_classes: int, head_type: str, variant: str = "tiny"):
-        super(TriFuseDetector, self).__init__()
-        self.backbone, self.head = build_model(num_classes, head_type, variant)
-
-    def forward(self, x):
-        return self.head(self.backbone(x))
-
-    def compute_loss(self, outputs, targets, criterion):
-        return self.head.compute_loss(outputs, targets, criterion)
 
 
 class TriFuse:
@@ -29,9 +18,10 @@ class TriFuse:
         head: str,
         variant: str = "tiny",
     ):
-        self.model = TriFuseDetector(num_classes, head, variant)
+        self.num_classes = num_classes
+        self.head = head
+        self.variant = variant
         self.args = None
-        self.logger = None
         self.trainer = None
 
     def train(
@@ -43,15 +33,30 @@ class TriFuse:
         print("[INFO] Loading config file...")
         if "config_path" in overrides:
             config_path = overrides.pop("config_path")
-        self.args = self._load_cfg(config_path, overrides)
+        self.args = load_config(config_path, overrides)
+        self.args.num_classes = self.num_classes
+        self.args.head = self.head
+        self.args.variant = self.variant
+
+        # Check dataset path
+        assert (
+            self.args.dataset_root is not None
+        ), "Dataset path is not set. Please set it in the config file or pass it as an argument."
 
         # Initialize Wandb
-        print("[INFO] Initializing Wandb...")
-        self._wandb_init(self.args.enable_logger)
+        self.args.logger = None
+        if self.args.enable_logger:
+            print("[INFO] Initializing Wandb...")
+            assert (
+                os.environ.get("WANDB_API_KEY") is not None
+            ), "Wandb API key is not set. Please set it in the environment variable WANDB_API_KEY."
+            self._wandb_init()
+        else:
+            print("[INFO] Wandb logging is disabled.")
 
         # Initialize trainer
         print("[INFO] Initializing trainer...")
-        self.trainer = TriFuseTrainer(self.args)
+        self.trainer = TriFuseTrainer(vars(self.args))
 
         # Start training
         print("[INFO] Starting training...")
@@ -60,22 +65,11 @@ class TriFuse:
         # Done training
         print("[INFO] Training done.")
 
-    def _load_cfg(self, cfg_path: Union[str, Path], overrides: dict) -> Namespace:
-        if isinstance(cfg_path, (str, Path)):
-            with open(cfg_path, errors="ignore", encoding="utf-8") as f:
-                data = f.read()
-                cfg = yaml.safe_load(data) or {}
-        for key, value in overrides.items():
-            cfg[key] = value
-
-        cfg = Namespace(**cfg)
-        return cfg
-
-    def _wandb_init(self, enable_logger: bool):
-        if RANK == 0 and enable_logger:
+    def _wandb_init(self):
+        if RANK in {-1, 0}:
             wandb.login(key=os.environ["WANDB_API_KEY"])
-            self.logger = wandb.init(project="trifuse", config=vars(self.args))
-            self.logger.define_metric("eval/precision", summary="max")
-            self.logger.define_metric("eval/recall", summary="max")
-            self.logger.define_metric("eval/mAP50", summary="max")
-            self.logger.define_metric("eval/mAP5095", summary="max")
+            self.args.logger = wandb.init(project="trifuse", config=vars(self.args))
+            self.args.logger.define_metric("eval/precision", summary="max")
+            self.args.logger.define_metric("eval/recall", summary="max")
+            self.args.logger.define_metric("eval/mAP50", summary="max")
+            self.args.logger.define_metric("eval/mAP5095", summary="max")
