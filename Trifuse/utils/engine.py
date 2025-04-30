@@ -1,13 +1,13 @@
 import sys
-import torch
 
 import numpy as np
-
+import torch
 from PIL import Image
-from tqdm import tqdm
-from utils.misc import box_cxcywh_to_xywh, plot_bboxes_batch
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+from tqdm import tqdm
+
+from utils.misc import box_cxcywh_to_xywh, plot_bboxes_batch
 
 
 def train_one_epoch(
@@ -26,11 +26,12 @@ def train_one_epoch(
 ):
     torch.cuda.empty_cache()
     model.train()
-    criterion.train()
+    if criterion is not None:
+        criterion.train()
     accu_loss = torch.zeros(1).to(device)
     optimizer.zero_grad()
 
-    bar = tqdm(dataloader, file=sys.stdout, disable=global_rank != 0)
+    bar = tqdm(dataloader, file=sys.stdout, disable=global_rank not in {-1, 0})
     for step, data in enumerate(bar):
         images, targets, _ = data
         images = images.to(device)
