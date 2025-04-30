@@ -6,7 +6,6 @@ from torch import nn
 
 import wandb
 from Trifuse.utils import DEFAULT_CONFIG_FILE, RANK
-from Trifuse.utils.build import build_model
 from Trifuse.utils.misc import load_config
 from Trifuse.utils.trainer import TriFuseTrainer
 
