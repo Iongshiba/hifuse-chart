@@ -25,10 +25,10 @@ class TriFuseDetector(nn.Module):
         self.head_type = head_type
         self.backbone, self.head = build_model(num_classes, head_type, variant)
 
-    def forward(self, x):
+    def forward(self, images, targets=None):
         if self.head_type == "retina":
-            return self.head(self.backbone(x), x)
-        return self.head(self.backbone(x))
+            return self.head(self.backbone(images), images, targets)
+        return self.head(self.backbone(images))
 
     def compute_loss(self, outputs, targets, criterion):
         return self.head.compute_loss(outputs, targets, criterion)
@@ -50,6 +50,8 @@ class TriFuseTrainer:
         self.val_loader = None
 
         self.device = self._device_init()
+        if self.device.type == "cpu":
+            self.args.num_workers = 0
 
     def train(self):
         if isinstance(self.args.device, str):
