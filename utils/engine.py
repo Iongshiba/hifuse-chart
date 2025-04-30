@@ -1,14 +1,14 @@
 import os
 import sys
-import torch
 
 import numpy as np
-
+import torch
 from PIL import Image
-from tqdm import tqdm
-from utils.misc import box_cxcywh_to_xywh, plot_bboxes_batch
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+from tqdm import tqdm
+
+from utils.misc import box_cxcywh_to_xywh, plot_bboxes_batch
 
 
 def train_one_epoch(

@@ -1,10 +1,10 @@
-import os
 import json
-import torch
+import os
 
+import torch
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision.transforms import Compose, Resize, ToTensor, Normalize
+from torchvision.transforms import Compose, Normalize, Resize, ToTensor
 
 
 class YOLODataset(Dataset):

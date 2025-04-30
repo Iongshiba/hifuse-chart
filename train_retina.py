@@ -1,31 +1,25 @@
-import os
-import torch
-import wandb
 import argparse
+import os
 import random
+
 import numpy as np
-
+import torch
 import torch.optim as optim
-
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import destroy_process_group, init_process_group
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+from torchvision.models.detection.retinanet import AnchorGenerator, RetinaNet
 
+import wandb
 # from torch.utils.tensorboard import SummaryWriter
 # from models.retina import RetinaNet
 from models.trifuse import TriFuse
-from torchvision.models.detection.retinanet import AnchorGenerator, RetinaNet
-from utils.build import (
-    TriFuse_Tiny,
-    get_params_groups,
-    create_lr_scheduler,
-    create_dataset,
-)
+from utils.build import (TriFuse_Tiny, create_dataset, create_lr_scheduler,
+                         get_params_groups)
+from utils.engine import evaluate_retina, plot_img, train_one_epoch_retina
 from utils.misc import check_model_memory
-from utils.engine import train_one_epoch_retina, evaluate_retina, plot_img
-
 
 # def ddp_setup(args):
 #     if args.distributed:

@@ -1,14 +1,14 @@
-import math
 import copy
-import torch
+import itertools
+import math
 
+import torch
+import torch.nn.functional as F
+from scipy.optimize import linear_sum_assignment
 from torch import nn
 from torchvision.ops.misc import MLP
-from scipy.optimize import linear_sum_assignment
-from utils.misc import get_clones, box_cxcywh_to_xyxy, generalized_iou
-import itertools
 
-import torch.nn.functional as F
+from utils.misc import box_cxcywh_to_xyxy, generalized_iou, get_clones
 
 
 class DETR(nn.Module):

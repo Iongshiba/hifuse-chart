@@ -1,17 +1,17 @@
 import math
-from typing import List, Optional, Tuple, Dict, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from torch import Tensor
 import torch.nn.functional as F
 import torchvision.models.detection._utils as det_utils
-from torchvision.ops import clip_boxes_to_image
-from torchvision.models.detection.retinanet import _sum
+from torch import Tensor
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
+from torchvision.models.detection.retinanet import _sum
 from torchvision.ops import batched_nms
 from torchvision.ops import boxes as box_ops
+from torchvision.ops import clip_boxes_to_image
 from torchvision.ops.focal_loss import sigmoid_focal_loss
 
 

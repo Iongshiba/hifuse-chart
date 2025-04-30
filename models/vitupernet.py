@@ -1,18 +1,10 @@
-from torch import (
-    alias_copy,
-    align_tensors,
-    nn,
-    cat,
-    rand,
-    _assert,
-    return_types,
-    softmax,
-)
 import torch.nn.functional as F
+from einops import rearrange, repeat
+from einops.layers.torch import Rearrange
+from torch import (_assert, alias_copy, align_tensors, cat, nn, rand,
+                   return_types, softmax)
 from torch.nn.modules import BatchNorm2d
 from torchvision.ops.misc import MLP
-from einops.layers.torch import Rearrange
-from einops import repeat, rearrange
 
 
 # COULD USE HIFUSE PATCHEMBEDDING MODULE

@@ -1,10 +1,11 @@
-import os
 import json
+import os
+
+import matplotlib.pyplot as plt
 import torch
+from main_model import main_model as create_model
 from PIL import Image
 from torchvision import transforms
-import matplotlib.pyplot as plt
-from main_model import main_model as create_model
 
 
 def main():

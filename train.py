@@ -1,25 +1,20 @@
-import os
-import torch
-import wandb
 import argparse
+import os
 
+import torch
 import torch.optim as optim
-
-from torch.distributed import init_process_group, destroy_process_group
+from torch.distributed import destroy_process_group, init_process_group
 from torch.distributed.elastic.multiprocessing.errors import record
 from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
-from utils.build import (
-    TriFuse_Tiny,
-    get_params_groups,
-    create_lr_scheduler,
-    create_criterion,
-    create_dataset,
-)
+
+import wandb
+from utils.build import (TriFuse_Tiny, create_criterion, create_dataset,
+                         create_lr_scheduler, get_params_groups)
+from utils.engine import evaluate, plot_img, train_one_epoch
 from utils.misc import check_model_memory
-from utils.engine import train_one_epoch, evaluate, plot_img
 
 
 @record

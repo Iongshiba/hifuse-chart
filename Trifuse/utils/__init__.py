@@ -1,7 +1,6 @@
-import platform
 import os
+import platform
 import sys
-
 from pathlib import Path
 from typing import Union
 
@@ -66,9 +65,11 @@ def get_user_config_dir(sub_dir="Trifuse"):
 
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[1]
+TRIFUSE_ROOT = FILE.parents[1]
 USER_CONFIG_DIR = Path(get_user_config_dir())
-DEFAULT_CONFIG_FILE = ROOT / "configs/default.yaml"
+DEFAULT_CONFIG_FILE = TRIFUSE_ROOT / "configs/default.yaml"
+
+# DEFAULT_WEIGHT_DIR = ROOT / "weights/"
 
 RANK = int(os.getenv("RANK", -1))
 LOCAL_RANK = int(os.getenv("LOCAL_RANK", -1))

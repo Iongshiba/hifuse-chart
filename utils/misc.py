@@ -1,16 +1,13 @@
-import os
 import copy
-import torch
+import os
 import pickle
-import numpy as np
-import torch.nn as nn
-import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn as nn
 from matplotlib.patches import Rectangle
 from torchvision.ops.boxes import box_area
-
-import torch.nn as nn
-import matplotlib.pyplot as plt
 
 
 def write_pickle(list_info: list, file_name: str):

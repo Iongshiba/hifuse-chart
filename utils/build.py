@@ -1,23 +1,18 @@
+import copy
 import json
 import math
-import copy
-import torch
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 from torchvision import transforms
-from models.trifuse import TriFuse
+
+from data.doclaynet import COCODataset, YOLODataset
 from models.detr import SetCriterion
-from utils.data import (
-    read_data_detection_yolo,
-    read_data_detection_coco,
-    make_coco_transforms,
-    DetectionTransform,
-    ImageOnlyTransform,
-    image_normalize,
-)
-from data.doclaynet import YOLODataset, COCODataset
+from models.trifuse import TriFuse
+from utils.data import (DetectionTransform, ImageOnlyTransform,
+                        image_normalize, make_coco_transforms,
+                        read_data_detection_coco, read_data_detection_yolo)
 
 
 def TriFuse_Tiny(num_classes: int, head: str = "detr"):
