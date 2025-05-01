@@ -201,72 +201,169 @@ class RetinaNet(nn.Module):
             "tloss": cls_loss + self.box_loss_weight * box_loss,
         }
 
+    #
+    # def _inference(
+    #     self, head_outputs, anchors, image_shapes
+    # ) -> List[Dict[str, Tensor]]:
+    #     # Torchvision implementation. Source: https://github.com/pytorch/vision/blob/main/torchvision/models/detection/retinanet.py
+    #     class_logits = head_outputs["cls_logits"]
+    #     box_regression = head_outputs["bbox_regression"]
+    #
+    #     num_images = len(image_shapes)
+    #
+    #     detections: List[Dict[str, Tensor]] = []
+    #
+    #     def ensure_2d(x):
+    #         return x.unsqueeze(0) if x.dim() == 1 else x
+    #
+    #     for index in range(num_images):
+    #         box_regression_per_image = [br[index] for br in box_regression]
+    #         logits_per_image = [cl[index] for cl in class_logits]
+    #         anchors_per_image, image_shape = anchors[index], image_shapes[index]
+    #
+    #         image_boxes = []
+    #         image_scores = []
+    #         image_labels = []
+    #
+    #         for box_regression_per_level, logits_per_level, anchors_per_level in zip(
+    #             box_regression_per_image, logits_per_image, anchors_per_image
+    #         ):
+    #             num_classes = logits_per_level.shape[-1]
+    #
+    #             # remove low scoring boxes
+    #             scores_per_level = torch.sigmoid(logits_per_level).flatten()
+    #             keep_idxs = scores_per_level > self.score_thresh
+    #             scores_per_level = scores_per_level[keep_idxs]
+    #             topk_idxs = torch.where(keep_idxs)[0]
+    #
+    #             # keep only topk scoring predictions
+    #             num_topk = det_utils._topk_min(topk_idxs, self.topk_candidates, 0)
+    #             scores_per_level, idxs = scores_per_level.topk(num_topk)
+    #             topk_idxs = topk_idxs[idxs]
+    #
+    #             anchor_idxs = torch.div(topk_idxs, num_classes, rounding_mode="floor")
+    #             labels_per_level = topk_idxs % num_classes
+    #
+    #             boxes_per_level = self.box_coder.decode_single(
+    #                 ensure_2d(box_regression_per_level[anchor_idxs]),
+    #                 ensure_2d(anchors_per_level[anchor_idxs]),
+    #             )
+    #             boxes_per_level = box_ops.clip_boxes_to_image(
+    #                 boxes_per_level, image_shape
+    #             )
+    #
+    #             image_boxes.append(boxes_per_level)
+    #             image_scores.append(scores_per_level)
+    #             image_labels.append(labels_per_level)
+    #
+    #         image_boxes = torch.cat(image_boxes, dim=0)
+    #         image_scores = torch.cat(image_scores, dim=0)
+    #         image_labels = torch.cat(image_labels, dim=0)
+    #
+    #         # non-maximum suppression
+    #         keep = box_ops.batched_nms(
+    #             image_boxes, image_scores, image_labels, self.nms_thresh
+    #         )
+    #         keep = keep[: self.detections_per_img]
+    #
+    #         detections.append(
+    #             {
+    #                 "boxes": image_boxes[keep],
+    #                 "scores": image_scores[keep],
+    #                 "labels": image_labels[keep],
+    #             }
+    #         )
+    #
+    #     return detections
     def _inference(
-        self, head_outputs, anchors, image_shapes
+        self,
+        head_outputs,
+        anchors,
+        image_sizes,
     ) -> List[Dict[str, Tensor]]:
-        # Torchvision implementation. Source: https://github.com/pytorch/vision/blob/main/torchvision/models/detection/retinanet.py
-        class_logits = head_outputs["cls_logits"]
-        box_regression = head_outputs["bbox_regression"]
+        cls_logits = head_outputs["cls_logits"]
+        bbox_regression = head_outputs["bbox_regression"]
 
-        num_images = len(image_shapes)
+        if isinstance(anchors[0], torch.Tensor) and anchors[0].dim() == 3:
+            B = anchors[0].size(0)
+            anchors = [
+                [lvl[i] for lvl in anchors] for i in range(B)  # for each image i
+            ]
+
+        def _ensure_2d(x: Tensor) -> Tensor:
+            return x.unsqueeze(0) if x.dim() == 1 else x
 
         detections: List[Dict[str, Tensor]] = []
+        num_images = len(image_sizes)
 
-        for index in range(num_images):
-            box_regression_per_image = [br[index] for br in box_regression]
-            logits_per_image = [cl[index] for cl in class_logits]
-            anchors_per_image, image_shape = anchors[index], image_shapes[index]
+        for img_idx in range(num_images):
+            # grab per-image, per-level tensors
+            box_regs = [br[img_idx] for br in bbox_regression]
+            logits = [cl[img_idx] for cl in cls_logits]
+            img_anchors, img_shape = anchors[img_idx], image_sizes[img_idx]
 
-            image_boxes = []
-            image_scores = []
-            image_labels = []
+            all_boxes, all_scores, all_labels = [], [], []
 
-            for box_regression_per_level, logits_per_level, anchors_per_level in zip(
-                box_regression_per_image, logits_per_image, anchors_per_image
-            ):
-                num_classes = logits_per_level.shape[-1]
+            for br_lvl, logit_lvl, anch_lvl in zip(box_regs, logits, img_anchors):
+                # br_lvl:  (N_anchors, 4)
+                # logit_lvl: (N_anchors, num_classes)
+                # anch_lvl:   (N_anchors, 4)
 
-                # remove low scoring boxes
-                scores_per_level = torch.sigmoid(logits_per_level).flatten()
-                keep_idxs = scores_per_level > self.score_thresh
-                scores_per_level = scores_per_level[keep_idxs]
-                topk_idxs = torch.where(keep_idxs)[0]
+                num_classes = logit_lvl.shape[-1]
+                scores = torch.sigmoid(logit_lvl).flatten()
+                keep = scores > self.score_thresh
 
-                # keep only topk scoring predictions
-                num_topk = det_utils._topk_min(topk_idxs, self.topk_candidates, 0)
-                scores_per_level, idxs = scores_per_level.topk(num_topk)
-                topk_idxs = topk_idxs[idxs]
+                if not keep.any():
+                    continue
 
-                anchor_idxs = torch.div(topk_idxs, num_classes, rounding_mode="floor")
-                labels_per_level = topk_idxs % num_classes
+                scores = scores[keep]
+                idxs = torch.where(keep)[0]
 
-                boxes_per_level = self.box_coder.decode_single(
-                    box_regression_per_level[anchor_idxs],
-                    anchors_per_level[anchor_idxs],
+                # top-K
+                K = det_utils._topk_min(idxs, self.detections_per_img, 0)
+                scores, topk_idx = scores.topk(K)
+                idxs = idxs[topk_idx]
+
+                # map flat idx -> anchor idx + label
+                anchor_idxs = torch.div(idxs, num_classes, rounding_mode="floor")
+                labels = idxs % num_classes
+
+                # slice out the regressions and anchors
+                sel_regs = _ensure_2d(br_lvl[anchor_idxs])
+                sel_anc = _ensure_2d(anch_lvl[anchor_idxs])
+
+                # decode + clip
+                boxes = self.box_coder.decode_single(sel_regs, sel_anc)
+                boxes = box_ops.clip_boxes_to_image(boxes, img_shape)
+
+                all_boxes.append(boxes)
+                all_scores.append(scores)
+                all_labels.append(labels)
+
+            if not all_scores:
+                # no detections for this image
+                detections.append(
+                    {
+                        "boxes": torch.zeros(0, 4),
+                        "scores": torch.zeros(0),
+                        "labels": torch.zeros(0, dtype=torch.int64),
+                    }
                 )
-                boxes_per_level = box_ops.clip_boxes_to_image(
-                    boxes_per_level, image_shape
-                )
+                continue
 
-                image_boxes.append(boxes_per_level)
-                image_scores.append(scores_per_level)
-                image_labels.append(labels_per_level)
+            boxes = torch.cat(all_boxes, 0)
+            scores = torch.cat(all_scores, 0)
+            labels = torch.cat(all_labels, 0)
 
-            image_boxes = torch.cat(image_boxes, dim=0)
-            image_scores = torch.cat(image_scores, dim=0)
-            image_labels = torch.cat(image_labels, dim=0)
-
-            # non-maximum suppression
-            keep = box_ops.batched_nms(
-                image_boxes, image_scores, image_labels, self.nms_thresh
-            )
+            # final NMS and cap at top detection count
+            keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
             keep = keep[: self.detections_per_img]
 
             detections.append(
                 {
-                    "boxes": image_boxes[keep],
-                    "scores": image_scores[keep],
-                    "labels": image_labels[keep],
+                    "boxes": boxes[keep],
+                    "scores": scores[keep],
+                    "labels": labels[keep],
                 }
             )
 
