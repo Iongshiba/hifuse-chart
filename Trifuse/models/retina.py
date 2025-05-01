@@ -304,10 +304,10 @@ class RetinaNet(nn.Module):
 
     def _inference(
         self,
-        cls_logits: List[Tensor],
-        bbox_regression: List[Tensor],
-        anchors: List,
-        image_sizes: List[Tuple[int, int]],
+        cls_logits,
+        bbox_regression,
+        anchors,
+        image_sizes,
     ) -> List[Dict[str, Tensor]]:
 
         # --- 0. make sure anchors is List[images][levels] -> Tensor[level_i,4]
