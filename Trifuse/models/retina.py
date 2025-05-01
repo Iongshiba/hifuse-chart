@@ -2,13 +2,16 @@ from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
+
 # import torchvision.models.detection._utils as det_utils
 import torchvision.models.detection._utils as det_utils
 from torch import Tensor
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.retinanet import (
-    RetinaNetClassificationHead, RetinaNetRegressionHead)
+    RetinaNetClassificationHead,
+    RetinaNetRegressionHead,
+)
 from torchvision.ops import boxes as box_ops
 from torchvision.ops import clip_boxes_to_image
 
@@ -35,6 +38,7 @@ class RetinaNet(nn.Module):
         bbox_reg_loss_type: str = "smooth_l1",
         score_thresh: float = 0.05,
         nms_thresh: float = 0.5,
+        topk_candidates: int = 1000,
         detections_per_img: int = 100,
     ):
         """
@@ -109,6 +113,7 @@ class RetinaNet(nn.Module):
         # Inference parameters
         self.score_thresh = score_thresh
         self.nms_thresh = nms_thresh
+        self.topk_candidates = topk_candidates
         self.detections_per_img = detections_per_img
 
         # Num of classes
