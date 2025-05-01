@@ -1,17 +1,14 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
-from torch import Tensor
-
 # import torchvision.models.detection._utils as det_utils
-from torchvision.models.detection._utils import BoxCoder, Matcher, _topk_min
+import torchvision.models.detection._utils as det_utils
+from torch import Tensor
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.retinanet import (
-    RetinaNetClassificationHead,
-    RetinaNetRegressionHead,
-)
+    RetinaNetClassificationHead, RetinaNetRegressionHead)
 from torchvision.ops import boxes as box_ops
 from torchvision.ops import clip_boxes_to_image
 
@@ -31,7 +28,7 @@ class RetinaNet(nn.Module):
         out_channels: int = 256,
         num_anchors: int = 9,
         anchor_generator: Optional[AnchorGenerator] = None,
-        proposal_matcher: Optional[Matcher] = None,
+        proposal_matcher: Optional[det_utils.Matcher] = None,
         box_loss_weight: float = 1.0,
         focal_loss_alpha: float = 0.25,
         focal_loss_gamma: float = 2.0,
@@ -93,15 +90,15 @@ class RetinaNet(nn.Module):
 
         # Proposal matcher
         if proposal_matcher is None:
-            proposal_matcher = Matcher(
+            proposal_matcher = det_utils.Matcher(
                 high_threshold=0.5, low_threshold=0.4, allow_low_quality_matches=True
             )
 
         self.proposal_matcher = proposal_matcher
-        self.BETWEEN_THRESHOLDS = Matcher.BETWEEN_THRESHOLDS
+        self.BETWEEN_THRESHOLDS = det_utils.Matcher.BETWEEN_THRESHOLDS
 
         # Box coder for converting between formats
-        self.box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
+        self.box_coder = det_utils.BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
 
         # Loss parameters
         self.box_loss_weight = box_loss_weight
