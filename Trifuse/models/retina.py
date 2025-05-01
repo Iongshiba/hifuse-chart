@@ -331,6 +331,8 @@ class RetinaNet(nn.Module):
                 # slice out the regressions and anchors
                 sel_regs = _ensure_2d(br_lvl[anchor_idxs])
                 sel_anc = _ensure_2d(anch_lvl[anchor_idxs])
+                print(sel_regs.shape)
+                print(sel_anc.shape)
 
                 # decode + clip
                 boxes = self.box_coder.decode_single(sel_regs, sel_anc)
