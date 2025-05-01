@@ -320,7 +320,7 @@ class RetinaNet(nn.Module):
                 idxs = torch.where(keep)[0]
 
                 # top-K
-                K = det_utils._topk_min(idxs, self.detections_per_img, 0)
+                K = det_utils._topk_min(idxs, self.topk_candidates, 0)
                 scores, topk_idx = scores.topk(K)
                 idxs = idxs[topk_idx]
 
