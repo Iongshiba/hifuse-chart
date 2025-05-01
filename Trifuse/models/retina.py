@@ -208,6 +208,9 @@ class RetinaNet(nn.Module):
         num_images = len(image_shapes)
         detections: List[Dict[str, Tensor]] = []
 
+        print("class_logits shape: ", class_logits.shape)
+        print("box_regression shape: ", box_regression.shape)
+
         def ensure_2d(x):
             return x.unsqueeze(0) if x.dim() == 1 else x
 
@@ -216,6 +219,10 @@ class RetinaNet(nn.Module):
             box_regs = [br[img_idx] for br in box_regression]
             logits = [cl[img_idx] for cl in class_logits]
             img_anchors, img_shape = anchors[img_idx], image_shapes[img_idx]
+
+            print("box_regs shape: ", box_regs.shape)
+            print("logits shape: ", logits.shape)
+            print("img_anchors shape: ", img_anchors.shape)
 
             for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
                 zip(box_regs, logits, img_anchors)
