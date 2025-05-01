@@ -76,11 +76,9 @@ class RetinaNet(nn.Module):
 
         # Anchor generator
         if anchor_generator is None:
-            anchor_sizes = (
-                (14, 28, 56),  # P1 (56x56)
-                (28, 56, 112),  # P2 (28x28)
-                (56, 112, 224),  # P3 (14x14)
-                (112, 224, 448),  # P4 (7x7)
+            anchor_sizes = tuple(
+                (s, int(s * 2 ** (1 / 3)), int(s * 2 ** (2 / 3)))
+                for s in [32, 64, 128, 256]
             )
 
             aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
