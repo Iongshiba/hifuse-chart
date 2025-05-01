@@ -6,10 +6,9 @@ from typing import Union
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 
-from models.detr import SetCriterion
 from Trifuse.data.dataset import COCODataset, YOLOCOCODataset, YOLODataset
 from Trifuse.models.backbone import TriFuseBackbone
-from Trifuse.models.detr import DETR
+from Trifuse.models.detr import SetCriterion, DETR
 from Trifuse.models.retina import RetinaNet
 from utils.data import (
     DetectionTransform,
