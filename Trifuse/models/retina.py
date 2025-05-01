@@ -304,11 +304,12 @@ class RetinaNet(nn.Module):
 
     def _inference(
         self,
-        cls_logits,
-        bbox_regression,
+        head_outputs,
         anchors,
         image_sizes,
     ) -> List[Dict[str, Tensor]]:
+        cls_logits = head_outputs["cls_logits"]
+        bbox_regression = head_outputs["bbox_regression"]
 
         # --- 0. make sure anchors is List[images][levels] -> Tensor[level_i,4]
         if isinstance(anchors[0], torch.Tensor) and anchors[0].dim() == 3:
