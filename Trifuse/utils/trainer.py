@@ -121,7 +121,7 @@ class TriFuseTrainer:
         print("[TRAINER] Building model...")
         self.model = TriFuseDetector(
             self.args.num_classes, self.args.head, self.args.variant
-        )
+        ).to(self.device)
 
         # Freeze layers     TODO: What is this doing?
         if self.args.freeze_layers:
@@ -168,9 +168,7 @@ class TriFuseTrainer:
         # Optimizer
         if self.args.optimizer == "adamw":
             self.optimizer = torch.optim.AdamW(
-                self.model.parameters(),
-                lr=self.args.lr,
-                weight_decay=self.args.wd,
+                self.model.parameters(), lr=self.args.lr, weight_decay=self.args.wd
             )
         else:
             raise NotImplementedError(
@@ -194,6 +192,11 @@ class TriFuseTrainer:
         # Resume training
         if self.args.resume:
             self._load_checkpoint()
+
+        if self.world_size > 1:
+            self.model = nn.parallel.DistributedDataParallel(
+                self.model, device_ids=[RANK], find_unused_parameters=True
+            )
 
     def _save_checkpoint(self, epoch):
         """
