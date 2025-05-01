@@ -1,15 +1,15 @@
-from argparse import Namespace
 import copy
 import os
 import pickle
+from argparse import Namespace
+from pathlib import Path
+from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-import yaml
 import torch
 import torch.nn as nn
-from pathlib import Path
-from typing import Optional, Union
+import yaml
 from matplotlib.patches import Rectangle
 from torchvision.ops.boxes import box_area
 

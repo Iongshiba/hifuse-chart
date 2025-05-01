@@ -1,22 +1,18 @@
 import os
 import subprocess
-import torch
-import torch.nn as nn
-import torch.distributed as dist
-
-from pathlib import Path
 from argparse import Namespace
+from pathlib import Path
+
+import torch
+import torch.distributed as dist
+import torch.nn as nn
 
 from Trifuse.utils import RANK, USER_CONFIG_DIR
+from Trifuse.utils.build import (build_criterion, build_dataloader,
+                                 build_dataset, build_lr_scheduler,
+                                 build_model)
 from Trifuse.utils.dist import ddp_cleanup, generate_ddp_command
-from Trifuse.utils.engine import train_one_epoch, evaluate
-from Trifuse.utils.build import (
-    build_model,
-    build_dataset,
-    build_dataloader,
-    build_criterion,
-    build_lr_scheduler,
-)
+from Trifuse.utils.engine import evaluate, train_one_epoch
 
 
 class TriFuseDetector(nn.Module):

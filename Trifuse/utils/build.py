@@ -8,15 +8,11 @@ from torch.utils.data import DataLoader, DistributedSampler
 
 from Trifuse.data.dataset import COCODataset, YOLOCOCODataset, YOLODataset
 from Trifuse.models.backbone import TriFuseBackbone
-from Trifuse.models.detr import SetCriterion, DETR
+from Trifuse.models.detr import DETR, SetCriterion
 from Trifuse.models.retina import RetinaNet
-from utils.data import (
-    DetectionTransform,
-    ImageOnlyTransform,
-    make_coco_transforms,
-    read_data_detection_coco,
-    read_data_detection_yolo,
-)
+from utils.data import (DetectionTransform, ImageOnlyTransform,
+                        make_coco_transforms, read_data_detection_coco,
+                        read_data_detection_yolo)
 
 
 def build_model(num_classes: int, head_type: str, variant: str = "tiny"):
