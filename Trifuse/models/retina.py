@@ -220,9 +220,9 @@ class RetinaNet(nn.Module):
             logits = [cl[img_idx] for cl in class_logits]
             img_anchors, img_shape = anchors[img_idx], image_shapes[img_idx]
 
-            print("box_regs shape: ", box_regs.shape)
-            print("logits shape: ", logits.shape)
-            print("img_anchors shape: ", img_anchors.shape)
+            print("box_regs shape: ", box_regs[0].shape)
+            print("logits shape: ", logits[0].shape)
+            print("img_anchors shape: ", img_anchors[0].shape)
 
             for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
                 zip(box_regs, logits, img_anchors)
