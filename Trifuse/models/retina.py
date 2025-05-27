@@ -318,8 +318,20 @@ class RetinaNet(nn.Module):
                 [lvl[i] for lvl in anchors] for i in range(B)  # for each image i
             ]
 
-        def _ensure_2d(x: Tensor) -> Tensor:
-            return x.unsqueeze(0) if x.dim() == 1 else x
+        def _ensure_2d(tensor):
+            # Ensure the tensor is at least 2D
+            if tensor.ndim == 1:
+                tensor = tensor.view(1, -1)
+
+            # Ensure the last dimension is 4
+            if tensor.shape[-1] != 4:
+                if tensor.numel() % 4 != 0:
+                    raise ValueError(
+                        f"Tensor cannot be reshaped to have 4 elements in the last dimension. Current shape: {tensor.shape}"
+                    )
+                tensor = tensor.view(-1, 4)
+
+            return tensor
 
         detections: List[Dict[str, Tensor]] = []
         num_images = len(image_sizes)
@@ -333,6 +345,9 @@ class RetinaNet(nn.Module):
             all_boxes, all_scores, all_labels = [], [], []
 
             for br_lvl, logit_lvl, anch_lvl in zip(box_regs, logits, img_anchors):
+                print("br_lvl.shape:", br_lvl.shape)
+                print("logit_lvl.shape:", logit_lvl.shape)
+                print("anch_lvl.shape:", anch_lvl.shape)
                 # br_lvl:  (N_anchors, 4)
                 # logit_lvl: (N_anchors, num_classes)
                 # anch_lvl:   (N_anchors, 4)
@@ -359,6 +374,9 @@ class RetinaNet(nn.Module):
                 # slice out the regressions and anchors
                 sel_regs = _ensure_2d(br_lvl[anchor_idxs])
                 sel_anc = _ensure_2d(anch_lvl[anchor_idxs])
+
+                print("sel_regs.shape:", sel_regs.shape)
+                print("sel_anc.shape:", sel_anc.shape)
 
                 # decode + clip
                 boxes = self.box_coder.decode_single(sel_regs, sel_anc)
