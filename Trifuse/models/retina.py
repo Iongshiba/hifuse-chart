@@ -167,7 +167,7 @@ class RetinaNet(nn.Module):
                         t.detach().cpu() for t in head_outputs["bbox_regression"]
                     ],
                     "anchors": [[a.detach().cpu() for a in lvl] for lvl in anchors],
-                    "image_list": image_list,
+                    "image_sizes": image_list.image_sizes,
                 }
                 torch.save(debug_data, "debug_head_outputs.pt")
 
