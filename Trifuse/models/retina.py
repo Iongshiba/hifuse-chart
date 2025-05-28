@@ -156,7 +156,20 @@ class RetinaNet(nn.Module):
         if self.training:
             return head_outputs, anchors
         else:
-            return self._inference(head_outputs, anchors, image_list.image_sizes)
+            try:
+                return self._inference(head_outputs, anchors, image_list.image_sizes)
+            except:
+                debug_data = {
+                    "cls_logits": [
+                        t.detach().cpu() for t in head_outputs["cls_logits"]
+                    ],
+                    "bbox_regression": [
+                        t.detach().cpu() for t in head_outputs["bbox_regression"]
+                    ],
+                    "anchors": [[a.detach().cpu() for a in lvl] for lvl in anchors],
+                    "image_list": image_list,
+                }
+                torch.save(debug_data, "debug_head_outputs.pt")
 
     def compute_loss(
         self,
@@ -237,12 +250,15 @@ class RetinaNet(nn.Module):
                 print("logits_per_level shape: ", logits_per_level.shape)
                 print("anchors_per_level shape: ", anchors_per_level.shape)
 
+                print("len box_regression_per_level: ", len(box_regression_per_level))
                 print("box_regression_per_level: ", box_regression_per_level)
                 print("logits_per_level: ", logits_per_level)
                 print("anchors_per_level: ", anchors_per_level)
 
                 print("box_regression_per_image: ", box_regression_per_image)
 
+                print("len box_regression: ", len(box_regression))
+                print("len box regression[0]:", len(box_regression[0]))
                 print("box_regression: ", box_regression)
                 scores_per_level = scores_per_level[keep_idxs]
                 topk_idxs = torch.where(keep_idxs)[0]
