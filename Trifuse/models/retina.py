@@ -324,84 +324,164 @@ class RetinaNet(nn.Module):
 
     def _inference(
         self,
-        head_outputs,
-        anchors,
-        image_sizes,
-    ):
+        head_outputs: Dict[str, List[Tensor]],
+        anchors: List,  # List[level] OR List[batch][level]
+        image_sizes: List[Tuple[int, int]],
+    ) -> List[Dict[str, Tensor]]:
         """
-        Args
-        ----
-        head_outputs : dict with keys 'cls_logits', 'bbox_regression'
-                    Each item is List[level] of Tensor[B, A_i, C] or Tensor[B, A_i, 4].
-        anchors      : either List[level] of Tensor[B, A_i, 4] **or**
-                    List[B] of List[level] of Tensor[A_i, 4]
-        image_sizes  : list of (h, w) per image
+        Retina/FCOS-style inference **with extremely verbose debug output**
+        that relies on `self._shapes()` for every shape print-out.
+
+        Copy this whole block directly into your model; nothing is omitted.
         """
-        cls_logits = head_outputs["cls_logits"]
-        bbox_regression = head_outputs["bbox_regression"]
+        # --------------------------------------------------------------------- #
+        sh = self._shapes  # convenience alias
+        print("\n================ BEGIN _inference =================")
 
-        # ----------------------------------------------------------------------- #
-        print("\n=== BEGIN _inference ===")
-        print(f"  #Levels           : {len(cls_logits)}")
-        print(f"  #Images (batch)   : {cls_logits[0].shape[0]}")
-        print(f"  cls_logits shapes : {self._shapes(cls_logits)}")
-        print(f"  bbox_regression   : {self._shapes(bbox_regression)}")
-        print(f"  anchors (raw)     : {self._shapes(anchors)}")
-        # ----------------------------------------------------------------------- #
+        cls_logits = head_outputs["cls_logits"]  # List[level]  Tensor[B, A_i, C]
+        bbox_regression = head_outputs[
+            "bbox_regression"
+        ]  # List[level]  Tensor[B, A_i, 4]
 
-        # --- 0. Convert anchors to List[B][level] if necessary ------------------ #
+        # --------------------------------------------------------------------- #
+        # 0. Anchor list canonicalisation
+        # --------------------------------------------------------------------- #
+        print("Raw anchors type:", type(anchors), " / shapes:", sh(anchors))
         if isinstance(anchors[0], torch.Tensor) and anchors[0].dim() == 3:
             B = anchors[0].size(0)
             anchors = [[lvl[i] for lvl in anchors] for i in range(B)]
-            print("  anchors converted : {_shapes(anchors)} (B-major)")
+            print(f"Converted anchors to [B][level] list, B={B}")
+        print(f"Anchors list lengths per image: {[len(a) for a in anchors]}")
 
-        # --- Helper to enforce 2-D (N,4) and show shapes ------------------------ #
-        def _ensure_2d(t: torch.Tensor, tag: str) -> torch.Tensor:
-            """Force t into shape (-1,4) while logging every step."""
-            print(f"    [{tag}] before ensure_2d → {tuple(t.shape)}")
-            if t.ndim == 1:  # (4,) → (1,4)
+        # --------------------------------------------------------------------- #
+        # Helper: ensure tensor is (N,4)  + debug
+        # --------------------------------------------------------------------- #
+        def _ensure_2d(t: Tensor, tag: str = "") -> Tensor:
+            print(f"  [{tag}] before _ensure_2d -> {sh(t)}")
+            if t.ndim == 1:
                 t = t.view(1, -1)
-            if t.shape[-1] != 4:  # (K*4,) or (… ,K,?) → (-1,4)
-                if t.numel() % 4:
-                    raise ValueError(f"Tensor {tag} cannot be reshaped to (_,4)")
+            if t.shape[-1] != 4:
+                if t.numel() % 4 != 0:
+                    raise ValueError(
+                        f"Tensor {tag} cannot be reshaped to (_,4); {sh(t)}"
+                    )
                 t = t.view(-1, 4)
-            print(f"    [{tag}] after  ensure_2d → {tuple(t.shape)}")
+            print(f"  [{tag}]  after _ensure_2d -> {sh(t)}")
             return t
 
-        # ----------------------------------------------------------------------- #
-
-        detections: List[Dict[str, torch.Tensor]] = []
+        detections: List[Dict[str, Tensor]] = []
         num_images = len(image_sizes)
-        print(f"  image_sizes       : {image_sizes}")
+        print(f"#images={num_images}, image_sizes={image_sizes}")
+        print(f"#feature levels={len(cls_logits)}")
+        for l, (cl, br) in enumerate(zip(cls_logits, bbox_regression)):
+            print(f"  level {l}: cls_logits {sh(cl)}, bbox_regression {sh(br)}")
 
-        # --- 1. Per-image loop -------------------------------------------------- #
+        # --------------------------------------------------------------------- #
+        # 1. Per-image loop
+        # --------------------------------------------------------------------- #
         for img_idx in range(num_images):
-            print(f"\n  --- Image {img_idx} ---")
-            # Slice the per-image tensors from each level
-            box_regs = [lvl[img_idx] for lvl in bbox_regression]
-            cls_scores = [lvl[img_idx] for lvl in cls_logits]
-            img_anchors = [lvl[img_idx] for lvl in anchors]
+            print(
+                f"\n----- Processing image {img_idx} -----  size={image_sizes[img_idx]}"
+            )
+            box_regs = [br[img_idx] for br in bbox_regression]  # List[level] (N_i,4)
+            logits = [cl[img_idx] for cl in cls_logits]  # List[level] (N_i,C)
+            img_anchors = anchors[img_idx]  # List[level] (N_i,4)
 
-            # Report raw shapes
-            print(f"    box_regs   raw  : {self._shapes(box_regs)}")
-            print(f"    cls_scores raw  : {self._shapes(cls_scores)}")
-            print(f"    anchors    raw  : {self._shapes(img_anchors)}")
+            for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
+                zip(box_regs, logits, img_anchors)
+            ):
+                print(
+                    f"  lvl {lvl}: br {sh(br_lvl)}, logits {sh(logit_lvl)}, anch {sh(anch_lvl)}"
+                )
 
-            # Enforce 2-D (N,4) on boxes and anchors, log each level
-            box_regs = [_ensure_2d(t, f"box_lvl{l}") for l, t in enumerate(box_regs)]
-            img_anchors = [
-                _ensure_2d(t, f"anch_lvl{l}") for l, t in enumerate(img_anchors)
-            ]
+            all_boxes, all_scores, all_labels = [], [], []
 
-            # Optionally flatten class scores to 2-D for symmetry
-            for l, s in enumerate(cls_scores):
-                print(f"    [cls_lvl{l}] shape → {tuple(s.shape)}")
+            # -------- per-level loop --------
+            for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
+                zip(box_regs, logits, img_anchors)
+            ):
+                print(f"\n  ==== Level {lvl} ====")
+                num_classes = logit_lvl.shape[-1]
+                print(f"    num_classes={num_classes}")
 
-            # ---------------- You would now decode boxes, apply NMS, etc. -------
-            # decoded = decode_deltas(img_anchors, box_regs)   # example
-            # keep    = batched_nms(decoded, cls_scores, ...)
-            # detections.append({...})
-            # ------------------------------------------------------------------- #
+                scores = torch.sigmoid(logit_lvl).flatten()  # (N_i * C,)
+                print(f"    scores {sh(scores)}")
+                keep = scores > self.score_thresh
+                print(
+                    f"    keep.sum()={int(keep.sum())}  (score_thresh={self.score_thresh})"
+                )
+                if not keep.any():
+                    print("    -> No scores kept at this level")
+                    continue
 
-        print("=== END _inference ===\n")
+                scores = scores[keep]
+                idxs = torch.where(keep)[0]
+
+                # Top-K
+                K = min(idxs.numel(), self.detections_per_img)
+                scores, topk_idx = scores.topk(K)
+                idxs = idxs[topk_idx]
+                print(f"    After top-K: K={K}, scores {sh(scores)}")
+
+                # Map flat idx → anchor idx  + label
+                anchor_idxs = torch.div(idxs, num_classes, rounding_mode="floor")
+                labels = idxs % num_classes
+                print(f"    anchor_idxs {sh(anchor_idxs)}, labels {sh(labels)}")
+
+                sel_regs = _ensure_2d(br_lvl[anchor_idxs], f"sel_regs_lvl{lvl}")
+                sel_anch = _ensure_2d(anch_lvl[anchor_idxs], f"sel_anch_lvl{lvl}")
+
+                boxes = self.box_coder.decode_single(sel_regs, sel_anch)
+                print(f"    boxes decoded {sh(boxes)}")
+                boxes = box_ops.clip_boxes_to_image(boxes, image_sizes[img_idx])
+                print(f"    boxes clipped {sh(boxes)}")
+
+                all_boxes.append(boxes)
+                all_scores.append(scores)
+                all_labels.append(labels)
+
+            # -------- aggregate per-image --------
+            if not all_scores:
+                print("  -> No detections for this image; returning empty tensors")
+                detections.append(
+                    dict(
+                        boxes=torch.zeros(0, 4, device=cls_logits[0].device),
+                        scores=torch.zeros(0, device=cls_logits[0].device),
+                        labels=torch.zeros(
+                            0, dtype=torch.int64, device=cls_logits[0].device
+                        ),
+                    )
+                )
+                continue
+
+            boxes = torch.cat(all_boxes, 0)
+            scores = torch.cat(all_scores, 0)
+            labels = torch.cat(all_labels, 0)
+            print(
+                f"\n  Before NMS: boxes {sh(boxes)}, scores {sh(scores)}, labels {sh(labels)}"
+            )
+
+            # -------- NMS --------
+            keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
+            print(
+                f"  NMS kept {int(keep.numel())} / {scores.numel()}   (nms_thresh={self.nms_thresh})"
+            )
+            keep = keep[: self.detections_per_img]
+            print(
+                f"  After cap detections_per_img={self.detections_per_img}: keep={int(keep.numel())}"
+            )
+
+            detections.append(
+                dict(
+                    boxes=boxes[keep],
+                    scores=scores[keep],
+                    labels=labels[keep],
+                )
+            )
+            out = detections[-1]
+            print(
+                f"  Final output shapes: boxes {sh(out['boxes'])}, scores {sh(out['scores'])}, labels {sh(out['labels'])}"
+            )
+
+        print("\n================  END _inference  =================\n")
         return detections
