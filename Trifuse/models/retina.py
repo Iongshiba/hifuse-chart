@@ -328,12 +328,6 @@ class RetinaNet(nn.Module):
         anchors: List,  # List[level] OR List[batch][level]
         image_sizes: List[Tuple[int, int]],
     ) -> List[Dict[str, Tensor]]:
-        """
-        Retina/FCOS-style inference **with extremely verbose debug output**
-        that relies on `self._shapes()` for every shape print-out.
-
-        Copy this whole block directly into your model; nothing is omitted.
-        """
         # --------------------------------------------------------------------- #
         sh = self._shapes  # convenience alias
         print("\n================ BEGIN _inference =================")
@@ -373,8 +367,8 @@ class RetinaNet(nn.Module):
         num_images = len(image_sizes)
         print(f"#images={num_images}, image_sizes={image_sizes}")
         print(f"#feature levels={len(cls_logits)}")
-        for l, (cl, br) in enumerate(zip(cls_logits, bbox_regression)):
-            print(f"  level {l}: cls_logits {sh(cl)}, bbox_regression {sh(br)}")
+        # for l, (cl, br) in enumerate(zip(cls_logits, bbox_regression)):
+        #     print(f"  level {l}: cls_logits {sh(cl)}, bbox_regression {sh(br)}")
 
         # --------------------------------------------------------------------- #
         # 1. Per-image loop
