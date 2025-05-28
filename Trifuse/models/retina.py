@@ -351,7 +351,6 @@ class RetinaNet(nn.Module):
         # Helper: ensure tensor is (N,4)  + debug
         # --------------------------------------------------------------------- #
         def _ensure_2d(t: Tensor, tag: str = "") -> Tensor:
-            print(f"  [{tag}] before _ensure_2d -> {sh(t)}")
             if t.ndim == 1:
                 t = t.view(1, -1)
             if t.shape[-1] != 4:
@@ -360,7 +359,6 @@ class RetinaNet(nn.Module):
                         f"Tensor {tag} cannot be reshaped to (_,4); {sh(t)}"
                     )
                 t = t.view(-1, 4)
-            print(f"  [{tag}]  after _ensure_2d -> {sh(t)}")
             return t
 
         detections: List[Dict[str, Tensor]] = []
@@ -381,32 +379,28 @@ class RetinaNet(nn.Module):
             logits = [cl[img_idx] for cl in cls_logits]  # List[level] (N_i,C)
             img_anchors = anchors[img_idx]  # List[level] (N_i,4)
 
-            # for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
-            #     zip(box_regs, logits, img_anchors)
-            # ):
-            # print(
-            #     f"  lvl {lvl}: br {sh(br_lvl)}, logits {sh(logit_lvl)}, anch {sh(anch_lvl)}"
-            # )
-
             all_boxes, all_scores, all_labels = [], [], []
 
             # -------- per-level loop --------
             for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
                 zip(box_regs, logits, img_anchors)
             ):
-                print(f"\n  ==== Level {lvl} ====")
                 num_classes = logit_lvl.shape[-1]
-                print(f"    num_classes={num_classes}")
 
                 scores = torch.sigmoid(logit_lvl).flatten()  # (N_i * C,)
-                print(f"    scores {sh(scores)}")
                 keep = scores > self.score_thresh
-                print(
-                    f"    keep.sum()={int(keep.sum())}  (score_thresh={self.score_thresh})"
-                )
                 if not keep.any():
-                    print("    -> No scores kept at this level")
                     continue
+
+                print("box_regs shape: ", br_lvl.shape)
+                print("logits shape: ", logit_lvl.shape)
+                print("img_anchors shape: ", anch_lvl.shape)
+
+                print("br_lvl: ", br_lvl)
+                print("logit_lvl: ", logit_lvl)
+
+                print("box_regs shape: ", sh(br_lvl))
+                print("box_regs: ", br_lvl)
 
                 scores = scores[keep]
                 idxs = torch.where(keep)[0]
@@ -424,6 +418,9 @@ class RetinaNet(nn.Module):
 
                 sel_regs = _ensure_2d(br_lvl[anchor_idxs], f"sel_regs_lvl{lvl}")
                 sel_anch = _ensure_2d(anch_lvl[anchor_idxs], f"sel_anch_lvl{lvl}")
+
+                print("sel_regs: ", sel_regs.shape)
+                print("sel_anch:", sel_anch.shape)
 
                 boxes = self.box_coder.decode_single(sel_regs, sel_anch)
                 print(f"    boxes decoded {sh(boxes)}")
