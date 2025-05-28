@@ -303,11 +303,22 @@ class RetinaNet(nn.Module):
     #     return detections
 
     def _shapes(self, obj) -> str:
+        """
+        Recursively turn a (possibly nested) list/tuple of tensors into
+        a readable string of shapes, e.g.
+            tensor([B, C, H, W])  -> "(2, 256, 64, 64)"
+            [t1, t2]              -> "[(2, 3), (4, 5)]"
+        """
+        import torch
+
         if isinstance(obj, torch.Tensor):
-            return tuple(obj.shape)
+            # tuple(obj.shape)  ➜  (2, 256, 64, 64)
+            return str(tuple(obj.shape))  # <-- cast to str
         elif isinstance(obj, (list, tuple)):
+            # recurse on each element, ensure each is already a str
             return "[" + ", ".join(self._shapes(o) for o in obj) + "]"
-        return str(obj)
+        else:
+            return str(obj)
 
     # --------------------------------------------------------------------------- #
 
