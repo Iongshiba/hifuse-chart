@@ -381,12 +381,12 @@ class RetinaNet(nn.Module):
             logits = [cl[img_idx] for cl in cls_logits]  # List[level] (N_i,C)
             img_anchors = anchors[img_idx]  # List[level] (N_i,4)
 
-            for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
-                zip(box_regs, logits, img_anchors)
-            ):
-                print(
-                    f"  lvl {lvl}: br {sh(br_lvl)}, logits {sh(logit_lvl)}, anch {sh(anch_lvl)}"
-                )
+            # for lvl, (br_lvl, logit_lvl, anch_lvl) in enumerate(
+            #     zip(box_regs, logits, img_anchors)
+            # ):
+            # print(
+            #     f"  lvl {lvl}: br {sh(br_lvl)}, logits {sh(logit_lvl)}, anch {sh(anch_lvl)}"
+            # )
 
             all_boxes, all_scores, all_labels = [], [], []
 
