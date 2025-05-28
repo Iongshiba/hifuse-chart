@@ -302,115 +302,95 @@ class RetinaNet(nn.Module):
     #
     #     return detections
 
+    def _shapes(self, obj) -> str:
+        if isinstance(obj, torch.Tensor):
+            return tuple(obj.shape)
+        elif isinstance(obj, (list, tuple)):
+            return "[" + ", ".join(self._shapes(o) for o in obj) + "]"
+        return str(obj)
+
+    # --------------------------------------------------------------------------- #
+
     def _inference(
         self,
         head_outputs,
         anchors,
         image_sizes,
-    ) -> List[Dict[str, Tensor]]:
+    ):
+        """
+        Args
+        ----
+        head_outputs : dict with keys 'cls_logits', 'bbox_regression'
+                    Each item is List[level] of Tensor[B, A_i, C] or Tensor[B, A_i, 4].
+        anchors      : either List[level] of Tensor[B, A_i, 4] **or**
+                    List[B] of List[level] of Tensor[A_i, 4]
+        image_sizes  : list of (h, w) per image
+        """
         cls_logits = head_outputs["cls_logits"]
         bbox_regression = head_outputs["bbox_regression"]
 
-        # --- 0. make sure anchors is List[images][levels] -> Tensor[level_i,4]
+        # ----------------------------------------------------------------------- #
+        print("\n=== BEGIN _inference ===")
+        print(f"  #Levels           : {len(cls_logits)}")
+        print(f"  #Images (batch)   : {cls_logits[0].shape[0]}")
+        print(f"  cls_logits shapes : {self._shapes(cls_logits)}")
+        print(f"  bbox_regression   : {self._shapes(bbox_regression)}")
+        print(f"  anchors (raw)     : {self._shapes(anchors)}")
+        # ----------------------------------------------------------------------- #
+
+        # --- 0. Convert anchors to List[B][level] if necessary ------------------ #
         if isinstance(anchors[0], torch.Tensor) and anchors[0].dim() == 3:
             B = anchors[0].size(0)
-            anchors = [
-                [lvl[i] for lvl in anchors] for i in range(B)  # for each image i
+            anchors = [[lvl[i] for lvl in anchors] for i in range(B)]
+            print("  anchors converted : {_shapes(anchors)} (B-major)")
+
+        # --- Helper to enforce 2-D (N,4) and show shapes ------------------------ #
+        def _ensure_2d(t: torch.Tensor, tag: str) -> torch.Tensor:
+            """Force t into shape (-1,4) while logging every step."""
+            print(f"    [{tag}] before ensure_2d → {tuple(t.shape)}")
+            if t.ndim == 1:  # (4,) → (1,4)
+                t = t.view(1, -1)
+            if t.shape[-1] != 4:  # (K*4,) or (… ,K,?) → (-1,4)
+                if t.numel() % 4:
+                    raise ValueError(f"Tensor {tag} cannot be reshaped to (_,4)")
+                t = t.view(-1, 4)
+            print(f"    [{tag}] after  ensure_2d → {tuple(t.shape)}")
+            return t
+
+        # ----------------------------------------------------------------------- #
+
+        detections: List[Dict[str, torch.Tensor]] = []
+        num_images = len(image_sizes)
+        print(f"  image_sizes       : {image_sizes}")
+
+        # --- 1. Per-image loop -------------------------------------------------- #
+        for img_idx in range(num_images):
+            print(f"\n  --- Image {img_idx} ---")
+            # Slice the per-image tensors from each level
+            box_regs = [lvl[img_idx] for lvl in bbox_regression]
+            cls_scores = [lvl[img_idx] for lvl in cls_logits]
+            img_anchors = [lvl[img_idx] for lvl in anchors]
+
+            # Report raw shapes
+            print(f"    box_regs   raw  : {self._shapes(box_regs)}")
+            print(f"    cls_scores raw  : {self._shapes(cls_scores)}")
+            print(f"    anchors    raw  : {self._shapes(img_anchors)}")
+
+            # Enforce 2-D (N,4) on boxes and anchors, log each level
+            box_regs = [_ensure_2d(t, f"box_lvl{l}") for l, t in enumerate(box_regs)]
+            img_anchors = [
+                _ensure_2d(t, f"anch_lvl{l}") for l, t in enumerate(img_anchors)
             ]
 
-        def _ensure_2d(tensor):
-            # Ensure the tensor is at least 2D
-            if tensor.ndim == 1:
-                tensor = tensor.view(1, -1)
+            # Optionally flatten class scores to 2-D for symmetry
+            for l, s in enumerate(cls_scores):
+                print(f"    [cls_lvl{l}] shape → {tuple(s.shape)}")
 
-            # Ensure the last dimension is 4
-            if tensor.shape[-1] != 4:
-                if tensor.numel() % 4 != 0:
-                    raise ValueError(
-                        f"Tensor cannot be reshaped to have 4 elements in the last dimension. Current shape: {tensor.shape}"
-                    )
-                tensor = tensor.view(-1, 4)
+            # ---------------- You would now decode boxes, apply NMS, etc. -------
+            # decoded = decode_deltas(img_anchors, box_regs)   # example
+            # keep    = batched_nms(decoded, cls_scores, ...)
+            # detections.append({...})
+            # ------------------------------------------------------------------- #
 
-            return tensor
-
-        detections: List[Dict[str, Tensor]] = []
-        num_images = len(image_sizes)
-
-        for img_idx in range(num_images):
-            # grab per-image, per-level tensors
-            box_regs = [br[img_idx] for br in bbox_regression]
-            logits = [cl[img_idx] for cl in cls_logits]
-            img_anchors, img_shape = anchors[img_idx], image_sizes[img_idx]
-
-            all_boxes, all_scores, all_labels = [], [], []
-
-            for br_lvl, logit_lvl, anch_lvl in zip(box_regs, logits, img_anchors):
-                print("br_lvl.shape:", br_lvl.shape)
-                print("logit_lvl.shape:", logit_lvl.shape)
-                print("anch_lvl.shape:", anch_lvl.shape)
-                # br_lvl:  (N_anchors, 4)
-                # logit_lvl: (N_anchors, num_classes)
-                # anch_lvl:   (N_anchors, 4)
-
-                num_classes = logit_lvl.shape[-1]
-                scores = torch.sigmoid(logit_lvl).flatten()
-                keep = scores > self.score_thresh
-
-                if not keep.any():
-                    continue
-
-                scores = scores[keep]
-                idxs = torch.where(keep)[0]
-
-                # top-K
-                K = det_utils._topk_min(idxs, self.detections_per_img, 0)
-                scores, topk_idx = scores.topk(K)
-                idxs = idxs[topk_idx]
-
-                # map flat idx -> anchor idx + label
-                anchor_idxs = torch.div(idxs, num_classes, rounding_mode="floor")
-                labels = idxs % num_classes
-
-                # slice out the regressions and anchors
-                sel_regs = _ensure_2d(br_lvl[anchor_idxs])
-                sel_anc = _ensure_2d(anch_lvl[anchor_idxs])
-
-                print("sel_regs.shape:", sel_regs.shape)
-                print("sel_anc.shape:", sel_anc.shape)
-
-                # decode + clip
-                boxes = self.box_coder.decode_single(sel_regs, sel_anc)
-                boxes = box_ops.clip_boxes_to_image(boxes, img_shape)
-
-                all_boxes.append(boxes)
-                all_scores.append(scores)
-                all_labels.append(labels)
-
-            if not all_scores:
-                # no detections for this image
-                detections.append(
-                    {
-                        "boxes": torch.zeros(0, 4),
-                        "scores": torch.zeros(0),
-                        "labels": torch.zeros(0, dtype=torch.int64),
-                    }
-                )
-                continue
-
-            boxes = torch.cat(all_boxes, 0)
-            scores = torch.cat(all_scores, 0)
-            labels = torch.cat(all_labels, 0)
-
-            # final NMS and cap at top detection count
-            keep = box_ops.batched_nms(boxes, scores, labels, self.nms_thresh)
-            keep = keep[: self.detections_per_img]
-
-            detections.append(
-                {
-                    "boxes": boxes[keep],
-                    "scores": scores[keep],
-                    "labels": labels[keep],
-                }
-            )
-
+        print("=== END _inference ===\n")
         return detections
