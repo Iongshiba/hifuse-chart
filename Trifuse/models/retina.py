@@ -270,6 +270,18 @@ class RetinaNet(nn.Module):
                 image_scores.append(scores_per_level)
                 image_labels.append(labels_per_level)
 
+            if not image_boxes:
+                print("  -> No detections for this image; returning empty tensors")
+                detections.append(
+                    dict(
+                        boxes=torch.zeros(0, 4, device=class_logits[0].device),
+                        scores=torch.zeros(0, device=class_logits[0].device),
+                        labels=torch.zeros(
+                            0, dtype=torch.int64, device=class_logits[0].device
+                        ),
+                    )
+                )
+                continue
             image_boxes = torch.cat(image_boxes, dim=0)
             image_scores = torch.cat(image_scores, dim=0)
             image_labels = torch.cat(image_labels, dim=0)
