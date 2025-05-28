@@ -241,9 +241,6 @@ class RetinaNet(nn.Module):
                 print("logits_per_level: ", logits_per_level)
                 print("anchors_per_level: ", anchors_per_level)
 
-                print(
-                    "box_regression_per_image shape: ", box_regression_per_image.shape
-                )
                 print("box_regression_per_image: ", box_regression_per_image)
 
                 print("box_regression: ", box_regression)
